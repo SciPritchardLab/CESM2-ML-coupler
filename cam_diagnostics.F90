@@ -39,6 +39,7 @@ public :: &
    diag_phys_writeout,       &! output diagnostics of the dynamics
    diag_phys_tend_writeout,  &! output physics tendencies
    diag_state_b4_phys_write, &! output state before physics execution
+   diag_state_b4_coupling,& ! output state before coupling to surface (pritch)
    diag_conv,                &! output diagnostics of convective processes
    diag_surf,                &! output diagnostics of the surface
    diag_export,              &! output export state
@@ -194,7 +195,15 @@ contains
 
     ! State before physics
     call addfld ('TBP',     (/ 'lev' /), 'A','K',             'Temperature (before physics)')
-    call addfld (bpcnst(1), (/ 'lev' /), 'A','kg/kg',         trim(cnst_longname(1))//' (before physics)')
+    call addfld ('TBC' ,     (/ 'lev' /),  'A','K' ,'Temperature (before coupling)') ! pritch
+    ! Since emulating for real geography, we need clean bracketing of tendencies for all before-coupling physics.
+    ! (BP state already saved satisfyingly; these variables will save the state at the end of tphysbc / phys_run1 i.e. before coupling.
+    call addfld ('QBC     ',     (/ 'lev' /),  'A','kg/kg   ','Specific humidity (before coupling)') ! pritch
+    call addfld ('CLDLIQBC',     (/ 'lev' /),  'A','kg/kg   ','Cloud liquid (before coupling)') ! pritch
+    call addfld ('CLDICEBC',     (/ 'lev' /),  'A','kg/kg   ','Cloud ice (before coupling)') ! pritch
+
+
+call addfld (bpcnst(1), (/ 'lev' /), 'A','kg/kg',         trim(cnst_longname(1))//' (before physics)')
     ! State after physics
     call addfld ('TAP',     (/ 'lev' /), 'A','K',             'Temperature (after physics)'       )
     call addfld ('UAP',     (/ 'lev' /), 'A','m/s',           'Zonal wind (after physics)'        )
@@ -327,6 +336,12 @@ contains
 
       ! State before physics (FV)
       call add_default ('TBP     '  , history_budget_histfile_num, ' ')
+     call add_default ('TBC     '  , history_budget_histfile_num, ' ') ! pritch
+       call add_default ('QBC     '  , history_budget_histfile_num, ' ')
+       call add_default ('CLDLIQBC'  , history_budget_histfile_num, ' ')
+       call add_default ('CLDICEBC'  , history_budget_histfile_num, ' ')      
+      
+      
       call add_default (bpcnst(1)   , history_budget_histfile_num, ' ')
       ! State after physics (FV)
       call add_default ('TAP     '  , history_budget_histfile_num, ' ')
@@ -594,7 +609,48 @@ contains
       call add_default ('TSMX    ', 1, ' ')
       call add_default ('SNOWHLND', 1, ' ')
       call add_default ('SNOWHICE', 1, ' ')
-    end if
+
+      call addfld ('NN2L_TBOT' ,horiz_only,    'I','K       ','Lowest model level temperature')
+      call addfld ('NN2L_ZBOT' ,horiz_only,    'I','m       ','Lowest model level height above surface')
+      call addfld ('NN2L_UBOT' ,horiz_only,    'I','m/s     ','Lowest model level u wind')
+      call addfld ('NN2L_VBOT' ,horiz_only,    'I','m/s     ','Lowest model level v wind')
+      call addfld ('NN2L_QBOT' ,horiz_only,    'I','kg/kg   ','Lowest model level specific humidity')
+      call addfld ('NN2L_PBOT' ,horiz_only,    'I','Pa      ','Lowest model level pressure')
+      call addfld ('NN2L_RHO'  ,horiz_only,    'I','kg/m3   ','Lowest model level density')
+      call addfld ('NN2L_NETSW' ,horiz_only,   'I','W/m2    ','Net shortwave flux at surface')
+      call addfld ('NN2L_FLWDS'  ,horiz_only,  'I','W/m2    ','Down longwave flux at surface')
+      call addfld ('NN2L_PRECSC'  ,horiz_only, 'I','m/s     ','Convective snow rate')
+      call addfld ('NN2L_PRECSL'  ,horiz_only, 'I','m/s     ','Stratiform snow rate')
+      call addfld ('NN2L_PRECC'  ,horiz_only,  'I','m/s     ','Convective precipitation rate')
+      call addfld ('NN2L_PRECL'  ,horiz_only,  'I','m/s     ','Stratiform precip rate')
+      call addfld ('NN2L_SOLL'  ,horiz_only,   'I','W/m2    ','Solar downward near infrared direct  to surface')
+      call addfld ('NN2L_SOLS'  ,horiz_only,   'I','W/m2    ','Direct solar rad on surface (< 0.7)')
+      call addfld ('NN2L_SOLLD'  ,horiz_only,  'I','W/m2    ','Diffuse solar rad on surface (>= 0.7)')
+      call addfld ('NN2L_SOLSD'  ,horiz_only,  'I','W/m2    ','Diffuse solar rad on surface (< 0.7)')
+
+      call addfld ('NN2L_THBOT'   ,horiz_only,  'I','K       ','atm potential T')
+      call addfld ('NN2L_CO2PROG' ,horiz_only,  'I','kg/m2/s ','prognostic co2')
+      call addfld ('NN2L_CO2DIAG' ,horiz_only,  'I','kg/m2/s ','diagnostic co2')
+      call addfld ('NN2L_PSL'     ,horiz_only,  'I','Pa      ','sea level pressure')
+      call addfld ('NN2L_BCPHIWET',horiz_only,  'I','kg/m2/s ','Black Carbon hydrophilic wet deposition')
+      call addfld ('NN2L_BCPHIDRY',horiz_only,  'I','kg/m2/s ','Black Carbon hydrophilic dry deposition')
+      call addfld ('NN2L_BCPHODRY',horiz_only,  'I','kg/m2/s ','Black Carbon hydrophobic dry deposition')
+      call addfld ('NN2L_OCPHIWET',horiz_only,  'I','kg/m2/s ','wet deposition of hydrophilic organic carbon')
+      call addfld ('NN2L_OCPHIDRY',horiz_only,  'I','kg/m2/s ','Organic Carbon hydrophilic dry deposition')
+      call addfld ('NN2L_OCPHODRY',horiz_only,  'I','kg/m2/s ','Organic Carbon hydrophobic dry deposition')
+      call addfld ('NN2L_DSTWET1' ,horiz_only,  'I','kg/m2/s ','wet deposition of dust (bin1)')
+      call addfld ('NN2L_DSTDRY1' ,horiz_only,  'I','kg/m2/s ','dry deposition of dust (bin1)')
+      call addfld ('NN2L_DSTWET2' ,horiz_only,  'I','kg/m2/s ','wet deposition of dust (bin2)')
+      call addfld ('NN2L_DSTDRY2' ,horiz_only,  'I','kg/m2/s ','dry deposition of dust (bin2)')
+      call addfld ('NN2L_DSTWET3' ,horiz_only,  'I','kg/m2/s ','wet deposition of dust (bin3)')
+      call addfld ('NN2L_DSTDRY3' ,horiz_only,  'I','kg/m2/s ','dry deposition of dust (bin3)')
+      call addfld ('NN2L_DSTWET4' ,horiz_only,  'I','kg/m2/s ','wet deposition of dust (bin4)')
+      call addfld ('NN2L_DSTDRY4' ,horiz_only,  'I','kg/m2/s ','dry deposition of dust (bin4)')
+      
+      call addfld ('SPLIQICESTORAGE',horiz_only,  'I', 'kg/m2/s','liquid storage')
+      call addfld ('SPICESTORAGE'   ,horiz_only,  'I', 'kg/m2/s','ice storage')
+
+end if
 
     if (dycore_is('SE')) then
       call add_default ('PSDRY', 1, ' ')
@@ -1766,6 +1822,43 @@ contains
       call outfld('ALDIF',    cam_in%aldif,     pcols, lchnk)
       call outfld('SST',      cam_in%sst,       pcols, lchnk)
 
+      call outfld('NN2L_TBOT',     cam_out%tbot,     pcols, lchnk)
+      call outfld('NN2L_ZBOT',     cam_out%zbot,     pcols, lchnk)
+      call outfld('NN2L_UBOT',     cam_out%ubot,     pcols, lchnk)
+      call outfld('NN2L_VBOT',     cam_out%vbot,     pcols, lchnk)
+      call outfld('NN2L_QBOT',     cam_out%qbot,     pcols, lchnk)
+      call outfld('NN2L_PBOT',     cam_out%pbot,     pcols, lchnk)
+      call outfld('NN2L_RHO',      cam_out%rho,      pcols, lchnk)
+      call outfld('NN2L_NETSW',      cam_out%netsw,      pcols, lchnk)
+      call outfld('NN2L_FLWDS',      cam_out%flwds,      pcols, lchnk)
+      call outfld('NN2L_PRECSC',      cam_out%precsc,      pcols, lchnk)
+      call outfld('NN2L_PRECSL',      cam_out%precsl,      pcols, lchnk)
+      call outfld('NN2L_PRECC',      cam_out%precc,      pcols, lchnk)
+      call outfld('NN2L_PRECL',      cam_out%precl,      pcols, lchnk)
+      call outfld('NN2L_SOLL',      cam_out%soll,      pcols, lchnk)
+      call outfld('NN2L_SOLS',      cam_out%sols,      pcols, lchnk)
+      call outfld('NN2L_SOLLD',      cam_out%solld,      pcols, lchnk)
+      call outfld('NN2L_SOLSD',      cam_out%solsd,      pcols, lchnk)
+
+      call outfld('NN2L_THBOT',      cam_out%thbot,      pcols, lchnk)
+      call outfld('NN2L_CO2PROG',     cam_out%co2prog,     pcols, lchnk)
+      call outfld('NN2L_CO2DIAG',     cam_out%co2diag,     pcols, lchnk)
+      call outfld('NN2L_PSL',     cam_out%psl,     pcols, lchnk)
+      call outfld('NN2L_BCPHIWET',     cam_out%bcphiwet,     pcols, lchnk)
+      call outfld('NN2L_BCPHIDRY',     cam_out%bcphidry,     pcols, lchnk)
+      call outfld('NN2L_BCPHODRY',      cam_out%bcphodry,      pcols, lchnk)
+      call outfld('NN2L_OCPHIWET',     cam_out%ocphiwet,     pcols, lchnk)
+      call outfld('NN2L_OCPHIDRY',     cam_out%ocphidry,     pcols, lchnk)
+      call outfld('NN2L_OCPHODRY',      cam_out%ocphodry,      pcols, lchnk)
+      call outfld('NN2L_DSTWET1',     cam_out%dstwet1,     pcols, lchnk)
+      call outfld('NN2L_DSTDRY1',     cam_out%dstdry1,     pcols, lchnk)
+      call outfld('NN2L_DSTWET2',     cam_out%dstwet2,     pcols, lchnk)
+      call outfld('NN2L_DSTDRY2',     cam_out%dstdry2,     pcols, lchnk)
+      call outfld('NN2L_DSTWET3',     cam_out%dstwet3,     pcols, lchnk)
+      call outfld('NN2L_DSTDRY3',     cam_out%dstdry3,     pcols, lchnk)
+      call outfld('NN2L_DSTWET4',     cam_out%dstwet4,     pcols, lchnk)
+      call outfld('NN2L_DSTDRY4',     cam_out%dstdry4,     pcols, lchnk)
+  
       if (co2_transport()) then
         do m = 1,4
           call outfld(sflxnam(c_i(m)), cam_in%cflx(:,c_i(m)), pcols, lchnk)
@@ -2234,5 +2327,42 @@ contains
       call diag_state_b4_phys_write_moist(state)
     end if
   end subroutine diag_state_b4_phys_write
+
+ subroutine diag_state_b4_coupling (state) ! pritch
+ !
+ !---------------------------------------------------------------
+ !
+ ! Purpose:  Dump state at end of tphysbc, before land coupling (pritch & beucler)
+ !
+ !---------------------------------------------------------------
+ !
+ ! Arguments
+ !
+    type(physics_state), intent(in) :: state 
+ !
+ !---------------------------Local workspace-----------------------------
+ !
+    integer :: ixcldice, ixcldliq ! constituent indices for cloud liquid and ice water.
+    integer :: lchnk              ! chunk index
+ !
+ !-----------------------------------------------------------------------
+ !
+     if (moist_physics) then
+
+     lchnk = state%lchnk
+
+    call cnst_get_ind('CLDLIQ', ixcldliq, abort=.false.)
+    call cnst_get_ind('CLDICE', ixcldice, abort=.false.)
+
+    call outfld('TBC', state%t, pcols, lchnk   )
+    if ( cnst_cam_outfld(       1) ) call outfld ('QBC', state%q(1,1,       1), pcols, lchnk)
+    if ( cnst_cam_outfld(ixcldliq) ) call outfld ('CLDLIQBC', state%q(1,1,ixcldliq), pcols, lchnk)
+    if ( cnst_cam_outfld(ixcldice) ) call outfld ('CLDICEBC', state%q(1,1,ixcldice), pcols, lchnk)
+
+    else
+      call endrun('HEY pritch & beucler "before coupling" variables not set up for dry dynamics.')   
+    end if
+    
+    end subroutine diag_state_b4_coupling
 
 end module cam_diagnostics

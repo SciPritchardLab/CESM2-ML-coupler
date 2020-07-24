@@ -1663,7 +1663,8 @@ contains
     use physics_types,   only: physics_state, physics_tend, physics_ptend, &
          physics_update, physics_ptend_init, physics_ptend_sum, &
          physics_state_check, physics_ptend_scale
-    use cam_diagnostics, only: diag_conv_tend_ini, diag_phys_writeout, diag_conv, diag_export, diag_state_b4_phys_write
+    use cam_diagnostics, only: diag_conv_tend_ini, diag_phys_writeout, diag_conv, diag_export, diag_state_b4_phys_write, &
+         diag_state_b4_coupling ! pritch & beucler
     use cam_history,     only: outfld
     use physconst,       only: cpair, latvap
     use constituents,    only: pcnst, qmin, cnst_get_ind
@@ -2274,6 +2275,8 @@ contains
     call t_startf('tropopause')
     call tropopause_output(state)
     call t_stopf('tropopause')
+
+    call diag_state_b4_coupling (state) ! pritch & beucler.
 
     ! Save atmospheric fields to force surface models
     call t_startf('cam_export')
