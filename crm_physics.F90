@@ -2132,8 +2132,6 @@ end subroutine crm_init_cnst
        end if
 
        ! check water and energy conservation
-       call outfld('SPLIQICESTORAGE',prec_dp+(qli_hydro(:,2)-qli_hydro(:,1))/ztodt/1000._r8,pcols,lchnk)
-       call outfld('SPICESTORAGE',snow_dp+(qi_hydro(:,2)-qi_hydro(:,1))/ztodt/1000.,pcols,lchnk)
        call check_energy_chng(state_loc, tend_loc, "crm_tend", nstep, ztodt, zero, &
                 prec_dp(:ncol)+(qli_hydro(:ncol,2)-qli_hydro(:ncol,1))/ztodt/1000._r8,  &
                 snow_dp(:ncol)+(qi_hydro(:ncol,2)-qi_hydro(:ncol,1))/ztodt/1000._r8, radflux)
