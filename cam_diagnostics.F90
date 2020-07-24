@@ -2351,8 +2351,9 @@ end if
 
      lchnk = state%lchnk
 
-    call cnst_get_ind('CLDLIQ', ixcldliq)
-    call cnst_get_ind('CLDICE', ixcldice)
+    call cnst_get_ind('CLDLIQ', ixcldliq, abort=.false.)
+    call cnst_get_ind('CLDICE', ixcldice, abort=.false.)
+
     call outfld('TBC', state%t, pcols, lchnk   )
     if ( cnst_cam_outfld(       1) ) call outfld ('QBC', state%q(1,1,       1), pcols, lchnk)
     if ( cnst_cam_outfld(ixcldliq) ) call outfld ('CLDLIQBC', state%q(1,1,ixcldliq), pcols, lchnk)
