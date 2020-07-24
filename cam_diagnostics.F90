@@ -647,8 +647,8 @@ call addfld (bpcnst(1), (/ 'lev' /), 'A','kg/kg',         trim(cnst_longname(1))
       call addfld ('NN2L_DSTWET4' ,horiz_only,  'I','kg/m2/s ','wet deposition of dust (bin4)')
       call addfld ('NN2L_DSTDRY4' ,horiz_only,  'I','kg/m2/s ','dry deposition of dust (bin4)')
       
-      call addfld ('SPLIQICESTORAGE',horiz_only,  'I',  ,'kg/m2/s','liquid storage')
-      call addfld ('SPICESTORAGE'   ,horiz_only,  'I',  ,'kg/m2/s','ice storage')
+      call addfld ('SPLIQICESTORAGE',horiz_only,  'I', 'kg/m2/s','liquid storage')
+      call addfld ('SPICESTORAGE'   ,horiz_only,  'I', 'kg/m2/s','ice storage')
 
 end if
 
