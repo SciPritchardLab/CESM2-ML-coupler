@@ -39,6 +39,7 @@ public :: &
    diag_phys_writeout,       &! output diagnostics of the dynamics
    diag_phys_tend_writeout,  &! output physics tendencies
    diag_state_b4_phys_write, &! output state before physics execution
+   diag_state_b4_coupling,& ! output state before coupling to surface (pritch)
    diag_conv,                &! output diagnostics of convective processes
    diag_surf,                &! output diagnostics of the surface
    diag_export,              &! output export state
@@ -194,7 +195,15 @@ contains
 
     ! State before physics
     call addfld ('TBP',     (/ 'lev' /), 'A','K',             'Temperature (before physics)')
-    call addfld (bpcnst(1), (/ 'lev' /), 'A','kg/kg',         trim(cnst_longname(1))//' (before physics)')
+    call addfld ('TBC     ','K       ',pver, 'A','Temperature (before coupling)'       ,phys_decomp) ! pritch
+    ! Since emulating for real geography, we need clean bracketing of tendencies for all before-coupling physics.
+    ! (BP state already saved satisfyingly; these variables will save the state at the end of tphysbc / phys_run1 i.e. before coupling.
+    call addfld ('QBC     ','kg/kg   ',pver, 'A','Specific humidity (before coupling)'       ,phys_decomp) ! pritch
+    call addfld ('CLDLIQBC','kg/kg   ',pver, 'A','Cloud liquid (before coupling)'       ,phys_decomp) ! pritch
+    call addfld ('CLDICEBC','kg/kg   ',pver, 'A','Cloud ice (before coupling)'       ,phys_decomp) ! pritch
+
+
+call addfld (bpcnst(1), (/ 'lev' /), 'A','kg/kg',         trim(cnst_longname(1))//' (before physics)')
     ! State after physics
     call addfld ('TAP',     (/ 'lev' /), 'A','K',             'Temperature (after physics)'       )
     call addfld ('UAP',     (/ 'lev' /), 'A','m/s',           'Zonal wind (after physics)'        )
@@ -327,6 +336,12 @@ contains
 
       ! State before physics (FV)
       call add_default ('TBP     '  , history_budget_histfile_num, ' ')
+     call add_default ('TBC     '  , history_budget_histfile_num, ' ') ! pritch
+       call add_default ('QBC     '  , history_budget_histfile_num, ' ')
+       call add_default ('CLDLIQBC'  , history_budget_histfile_num, ' ')
+       call add_default ('CLDICEBC'  , history_budget_histfile_num, ' ')      
+      
+      
       call add_default (bpcnst(1)   , history_budget_histfile_num, ' ')
       ! State after physics (FV)
       call add_default ('TAP     '  , history_budget_histfile_num, ' ')
@@ -2309,5 +2324,41 @@ end if
       call diag_state_b4_phys_write_moist(state)
     end if
   end subroutine diag_state_b4_phys_write
+
+ subroutine diag_state_b4_coupling (state) ! pritch
+ !
+ !---------------------------------------------------------------
+ !
+ ! Purpose:  Dump state at end of tphysbc, before land coupling (pritch & beucler)
+ !
+ !---------------------------------------------------------------
+ !
+ ! Arguments
+ !
+    type(physics_state), intent(in) :: state 
+ !
+ !---------------------------Local workspace-----------------------------
+ !
+!    integer :: ixcldice, ixcldliq ! constituent indices for cloud liquid and ice water.
+    integer :: lchnk              ! chunk index
+ !
+ !-----------------------------------------------------------------------
+ !
+     if (moist_physics) then
+
+     lchnk = state%lchnk
+
+ !   call cnst_get_ind('CLDLIQ', ixcldliq)
+ !   call cnst_get_ind('CLDICE', ixcldice)
+    call outfld('TBC', state%t, pcols, lchnk   )
+    if ( cnst_cam_outfld(       1) ) call outfld ('QBC', state%q(1,1,       1), pcols, lchnk)
+    if ( cnst_cam_outfld(ixcldliq) ) call outfld ('CLDLIQBC', state%q(1,1,ixcldliq), pcols, lchnk)
+    if ( cnst_cam_outfld(ixcldice) ) call outfld ('CLDICEBC', state%q(1,1,ixcldice), pcols, lchnk)
+
+    else
+      call endrun('HEY pritch & beucler "before coupling" variables not set up for dry dynamics.')   
+    end if
+    
+    end subroutine diag_state_b4_coupling
 
 end module cam_diagnostics
