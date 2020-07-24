@@ -195,7 +195,7 @@ contains
 
     ! State before physics
     call addfld ('TBP',     (/ 'lev' /), 'A','K',             'Temperature (before physics)')
-    call addfld ('TBC' ,     (/ 'lev' /),  'A','K ,'Temperature (before coupling)') ! pritch
+    call addfld ('TBC' ,     (/ 'lev' /),  'A','K' ,'Temperature (before coupling)') ! pritch
     ! Since emulating for real geography, we need clean bracketing of tendencies for all before-coupling physics.
     ! (BP state already saved satisfyingly; these variables will save the state at the end of tphysbc / phys_run1 i.e. before coupling.
     call addfld ('QBC     ',     (/ 'lev' /),  'A','kg/kg   ','Specific humidity (before coupling)') ! pritch
