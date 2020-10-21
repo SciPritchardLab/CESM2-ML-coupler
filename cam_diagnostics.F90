@@ -11,7 +11,7 @@ use physics_types,   only: physics_state, physics_tend
 use ppgrid,          only: pcols, pver, begchunk, endchunk
 use physics_buffer,  only: physics_buffer_desc, pbuf_add_field, dtype_r8
 use physics_buffer,  only: dyn_time_lvls, pbuf_get_field, pbuf_get_index, pbuf_old_tim_idx
-
+use cam_logfile,   only: iulog
 use cam_history,     only: outfld, write_inithist, hist_fld_active, inithist_all
 use constituents,    only: pcnst, cnst_name, cnst_longname, cnst_cam_outfld
 use constituents,    only: ptendnam, dmetendnam, apcnst, bpcnst, cnst_get_ind
@@ -201,7 +201,8 @@ contains
     call addfld ('QBC     ',     (/ 'lev' /),  'A','kg/kg   ','Specific humidity (before coupling)') ! pritch
     call addfld ('CLDLIQBC',     (/ 'lev' /),  'A','kg/kg   ','Cloud liquid (before coupling)') ! pritch
     call addfld ('CLDICEBC',     (/ 'lev' /),  'A','kg/kg   ','Cloud ice (before coupling)') ! pritch
-
+    !call addfld ('CLDLIQBP',     (/ 'lev' /),  'A','kg/kg   ','Cloud liquid (before physics)') ! pritch
+    !call addfld ('CLDICEBP',     (/ 'lev' /),  'A','kg/kg   ','Cloud ice (before physics)') ! pritch
 
 call addfld (bpcnst(1), (/ 'lev' /), 'A','kg/kg',         trim(cnst_longname(1))//' (before physics)')
     ! State after physics
@@ -336,11 +337,12 @@ call addfld (bpcnst(1), (/ 'lev' /), 'A','kg/kg',         trim(cnst_longname(1))
 
       ! State before physics (FV)
       call add_default ('TBP     '  , history_budget_histfile_num, ' ')
-     call add_default ('TBC     '  , history_budget_histfile_num, ' ') ! pritch
-       call add_default ('QBC     '  , history_budget_histfile_num, ' ')
-       call add_default ('CLDLIQBC'  , history_budget_histfile_num, ' ')
-       call add_default ('CLDICEBC'  , history_budget_histfile_num, ' ')      
-      
+      call add_default ('TBC     '  , history_budget_histfile_num, ' ') ! pritch
+      call add_default ('QBC     '  , history_budget_histfile_num, ' ')
+      call add_default ('CLDLIQBC'  , history_budget_histfile_num, ' ')
+      call add_default ('CLDICEBC'  , history_budget_histfile_num, ' ')      
+      call add_default ('CLDLIQBP'  , history_budget_histfile_num, ' ')
+      call add_default ('CLDICEBP'  , history_budget_histfile_num, ' ')      
       
       call add_default (bpcnst(1)   , history_budget_histfile_num, ' ')
       ! State after physics (FV)
@@ -610,19 +612,19 @@ call addfld (bpcnst(1), (/ 'lev' /), 'A','kg/kg',         trim(cnst_longname(1))
       call add_default ('SNOWHLND', 1, ' ')
       call add_default ('SNOWHICE', 1, ' ')
 
-      call addfld ('NN2L_TBOT' ,horiz_only,    'I','K       ','Lowest model level temperature')
-      call addfld ('NN2L_ZBOT' ,horiz_only,    'I','m       ','Lowest model level height above surface')
-      call addfld ('NN2L_UBOT' ,horiz_only,    'I','m/s     ','Lowest model level u wind')
-      call addfld ('NN2L_VBOT' ,horiz_only,    'I','m/s     ','Lowest model level v wind')
-      call addfld ('NN2L_QBOT' ,horiz_only,    'I','kg/kg   ','Lowest model level specific humidity')
+      call addfld ('NN2L_TBOT' ,horiz_only,    'A','K       ','Lowest model level temperature')
+      call addfld ('NN2L_ZBOT' ,horiz_only,    'A','m       ','Lowest model level height above surface')
+      call addfld ('NN2L_UBOT' ,horiz_only,    'A','m/s     ','Lowest model level u wind')
+      call addfld ('NN2L_VBOT' ,horiz_only,    'A','m/s     ','Lowest model level v wind')
+      call addfld ('NN2L_QBOT' ,horiz_only,    'A','kg/kg   ','Lowest model level specific humidity')
       call addfld ('NN2L_PBOT' ,horiz_only,    'I','Pa      ','Lowest model level pressure')
       call addfld ('NN2L_RHO'  ,horiz_only,    'I','kg/m3   ','Lowest model level density')
       call addfld ('NN2L_NETSW' ,horiz_only,   'I','W/m2    ','Net shortwave flux at surface')
       call addfld ('NN2L_FLWDS'  ,horiz_only,  'I','W/m2    ','Down longwave flux at surface')
-      call addfld ('NN2L_PRECSC'  ,horiz_only, 'I','m/s     ','Convective snow rate')
-      call addfld ('NN2L_PRECSL'  ,horiz_only, 'I','m/s     ','Stratiform snow rate')
-      call addfld ('NN2L_PRECC'  ,horiz_only,  'I','m/s     ','Convective precipitation rate')
-      call addfld ('NN2L_PRECL'  ,horiz_only,  'I','m/s     ','Stratiform precip rate')
+      call addfld ('NN2L_PRECSC'  ,horiz_only, 'A','m/s     ','Convective snow rate')
+      call addfld ('NN2L_PRECSL'  ,horiz_only, 'A','m/s     ','Stratiform snow rate')
+      call addfld ('NN2L_PRECC'  ,horiz_only,  'A','m/s     ','Convective precipitation rate')
+      call addfld ('NN2L_PRECL'  ,horiz_only,  'A','m/s     ','Stratiform precip rate')
       call addfld ('NN2L_SOLL'  ,horiz_only,   'I','W/m2    ','Solar downward near infrared direct  to surface')
       call addfld ('NN2L_SOLS'  ,horiz_only,   'I','W/m2    ','Direct solar rad on surface (< 0.7)')
       call addfld ('NN2L_SOLLD'  ,horiz_only,  'I','W/m2    ','Diffuse solar rad on surface (>= 0.7)')
@@ -631,21 +633,21 @@ call addfld (bpcnst(1), (/ 'lev' /), 'A','kg/kg',         trim(cnst_longname(1))
       call addfld ('NN2L_THBOT'   ,horiz_only,  'I','K       ','atm potential T')
       call addfld ('NN2L_CO2PROG' ,horiz_only,  'I','kg/m2/s ','prognostic co2')
       call addfld ('NN2L_CO2DIAG' ,horiz_only,  'I','kg/m2/s ','diagnostic co2')
-      call addfld ('NN2L_PSL'     ,horiz_only,  'I','Pa      ','sea level pressure')
-      call addfld ('NN2L_BCPHIWET',horiz_only,  'I','kg/m2/s ','Black Carbon hydrophilic wet deposition')
-      call addfld ('NN2L_BCPHIDRY',horiz_only,  'I','kg/m2/s ','Black Carbon hydrophilic dry deposition')
-      call addfld ('NN2L_BCPHODRY',horiz_only,  'I','kg/m2/s ','Black Carbon hydrophobic dry deposition')
-      call addfld ('NN2L_OCPHIWET',horiz_only,  'I','kg/m2/s ','wet deposition of hydrophilic organic carbon')
-      call addfld ('NN2L_OCPHIDRY',horiz_only,  'I','kg/m2/s ','Organic Carbon hydrophilic dry deposition')
-      call addfld ('NN2L_OCPHODRY',horiz_only,  'I','kg/m2/s ','Organic Carbon hydrophobic dry deposition')
-      call addfld ('NN2L_DSTWET1' ,horiz_only,  'I','kg/m2/s ','wet deposition of dust (bin1)')
-      call addfld ('NN2L_DSTDRY1' ,horiz_only,  'I','kg/m2/s ','dry deposition of dust (bin1)')
-      call addfld ('NN2L_DSTWET2' ,horiz_only,  'I','kg/m2/s ','wet deposition of dust (bin2)')
-      call addfld ('NN2L_DSTDRY2' ,horiz_only,  'I','kg/m2/s ','dry deposition of dust (bin2)')
-      call addfld ('NN2L_DSTWET3' ,horiz_only,  'I','kg/m2/s ','wet deposition of dust (bin3)')
-      call addfld ('NN2L_DSTDRY3' ,horiz_only,  'I','kg/m2/s ','dry deposition of dust (bin3)')
-      call addfld ('NN2L_DSTWET4' ,horiz_only,  'I','kg/m2/s ','wet deposition of dust (bin4)')
-      call addfld ('NN2L_DSTDRY4' ,horiz_only,  'I','kg/m2/s ','dry deposition of dust (bin4)')
+      call addfld ('NN2L_PSL'     ,horiz_only,  'A','Pa      ','sea level pressure')
+      call addfld ('NN2L_BCPHIWET',horiz_only,  'A','kg/m2/s ','Black Carbon hydrophilic wet deposition')
+      call addfld ('NN2L_BCPHIDRY',horiz_only,  'A','kg/m2/s ','Black Carbon hydrophilic dry deposition')
+      call addfld ('NN2L_BCPHODRY',horiz_only,  'A','kg/m2/s ','Black Carbon hydrophobic dry deposition')
+      call addfld ('NN2L_OCPHIWET',horiz_only,  'A','kg/m2/s ','wet deposition of hydrophilic organic carbon')
+      call addfld ('NN2L_OCPHIDRY',horiz_only,  'A','kg/m2/s ','Organic Carbon hydrophilic dry deposition')
+      call addfld ('NN2L_OCPHODRY',horiz_only,  'A','kg/m2/s ','Organic Carbon hydrophobic dry deposition')
+      call addfld ('NN2L_DSTWET1' ,horiz_only,  'A','kg/m2/s ','wet deposition of dust (bin1)')
+      call addfld ('NN2L_DSTDRY1' ,horiz_only,  'A','kg/m2/s ','dry deposition of dust (bin1)')
+      call addfld ('NN2L_DSTWET2' ,horiz_only,  'A','kg/m2/s ','wet deposition of dust (bin2)')
+      call addfld ('NN2L_DSTDRY2' ,horiz_only,  'A','kg/m2/s ','dry deposition of dust (bin2)')
+      call addfld ('NN2L_DSTWET3' ,horiz_only,  'A','kg/m2/s ','wet deposition of dust (bin3)')
+      call addfld ('NN2L_DSTDRY3' ,horiz_only,  'A','kg/m2/s ','dry deposition of dust (bin3)')
+      call addfld ('NN2L_DSTWET4' ,horiz_only,  'A','kg/m2/s ','wet deposition of dust (bin4)')
+      call addfld ('NN2L_DSTDRY4' ,horiz_only,  'A','kg/m2/s ','dry deposition of dust (bin4)')
       
       call addfld ('SPLIQICESTORAGE',horiz_only,  'I', 'kg/m2/s','liquid storage')
       call addfld ('SPICESTORAGE'   ,horiz_only,  'I', 'kg/m2/s','ice storage')
@@ -2259,6 +2261,7 @@ end if
     !
     !---------------------------Local workspace-----------------------------
     !
+    integer :: ixcldice, ixcldliq ! constituent indices for cloud liquid and ice water.
     integer :: lchnk              ! chunk index
     !
     !-----------------------------------------------------------------------
@@ -2266,6 +2269,11 @@ end if
     lchnk = state%lchnk
 
     call outfld('TBP', state%t, pcols, lchnk   )
+    call cnst_get_ind('CLDLIQ', ixcldliq, abort=.false.)
+    call cnst_get_ind('CLDICE', ixcldice, abort=.false.)
+    if ( cnst_cam_outfld(ixcldliq) ) call outfld ('CLDLIQBP',state%q(1,1,ixcldliq), pcols, lchnk)
+    if ( cnst_cam_outfld(ixcldice) ) call outfld ('CLDICEBP',state%q(1,1,ixcldice), pcols, lchnk)
+
 
   end subroutine diag_state_b4_phys_write_dry
 
@@ -2353,7 +2361,8 @@ end if
 
     call cnst_get_ind('CLDLIQ', ixcldliq, abort=.false.)
     call cnst_get_ind('CLDICE', ixcldice, abort=.false.)
-
+    write(iulog,*) 'state-t: ', state%t
+    write(iulog,*) 'state-q: ', state%q
     call outfld('TBC', state%t, pcols, lchnk   )
     if ( cnst_cam_outfld(       1) ) call outfld ('QBC', state%q(1,1,       1), pcols, lchnk)
     if ( cnst_cam_outfld(ixcldliq) ) call outfld ('CLDLIQBC', state%q(1,1,ixcldliq), pcols, lchnk)
