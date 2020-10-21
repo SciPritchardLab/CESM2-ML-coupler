@@ -980,7 +980,6 @@ contains
 
     call t_startf ('physpkg_st1')
     nstep = get_nstep()
-    write(iulog,*) 'Liran Test HERE 000!!!!'
 #if ( defined OFFLINE_DYN )
     !
     ! if offline mode set SNOWH and TS for micro-phys
@@ -1047,12 +1046,10 @@ contains
       call t_stopf ('diag_physvar_ic')
 
       if (use_spcam) then
-        write(iulog,*) 'Liran Test HERE 1111!!!!'
         call tphysbc_spcam (ztodt, phys_state(c),     &
              phys_tend(c), phys_buffer_chunk, &
              cam_out(c), cam_in(c) )
       else
-        write(iulog,*) 'Liran Test HERE 2222!!!!'
         call tphysbc (ztodt, phys_state(c),           &
              phys_tend(c), phys_buffer_chunk, &
              cam_out(c), cam_in(c) )
@@ -2277,7 +2274,6 @@ contains
     call t_startf('tropopause')
     call tropopause_output(state)
     call t_stopf('tropopause')
-if (masterproc) write(iulog,*) 'Liran Test HERE!!!!'
     call diag_state_b4_coupling (state) ! pritch & beucler.
 
     ! Save atmospheric fields to force surface models
