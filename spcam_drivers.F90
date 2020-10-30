@@ -336,6 +336,7 @@ subroutine tphysbc_spcam (ztodt, state,   &
     type(physics_state) :: state_save
     type(physics_tend ) :: tend_save
     real(r8) :: nn_input(pcols,4*pver+4) 
+    real(r8) :: nn_solin(pcols) 
 #endif
     !
     !---------------------------Local workspace-----------------------------
@@ -540,7 +541,12 @@ subroutine tphysbc_spcam (ztodt, state,   &
              call spcam_radiation_col_finalize_sam1mom(state, ii, jj, pbuf, rd, cam_out, rad_avgdata_sam1mom)
           end do
        end do
+#ifdef CBRAIN
+       call spcam_radiation_finalize_sam1mom(cam_in, state, pbuf, rad_avgdata_sam1mom, cam_out, cldn, net_flx, ptend,nn_solin)
+#else
        call spcam_radiation_finalize_sam1mom(cam_in, state, pbuf, rad_avgdata_sam1mom, cam_out, cldn, net_flx, ptend)
+#endif
+       
 
     else if(is_spcam_m2005) then
        do jj=1,crm_ny
@@ -594,8 +600,7 @@ subroutine tphysbc_spcam (ztodt, state,   &
     nn_input(:ncol,(pver+2):(3*pver)) = state%q(:ncol,:pver,ixcldliq)
     nn_input(:ncol,(pver+3):(4*pver)) = state%q(:ncol,:pver,ixcldice)
     nn_input(:ncol,(4*pver+1)) = state%ps(:ncol)
-    ! INSERT SOLIN:
-!    nn_input(:ncol,(4*pver+2)) = INSERT 
+    nn_input(:ncol,(4*pver+2)) = nn_solin(:ncol) ! WARNING this is being lazily mined from part of SP solution... should be avoidable in future when bypassing SP totally but will take work.
     ! INSERT SHFLX:
 !    nn_input(:ncol,(4*pver+3)) = INSERT 
     ! INSERT LHFLX:
@@ -1949,8 +1954,11 @@ subroutine spcam_radiation_col_setup_sam1mom(ii, jj, state_loc, pbuf, rad_avgdat
 end subroutine spcam_radiation_col_setup_sam1mom
 
 !===============================================================================
-
+#ifdef CBRAIN
+subroutine spcam_radiation_finalize_sam1mom(cam_in, state, pbuf, rad_avgdata, cam_out, cldn, net_flx, ptend,solin_out)
+#else
 subroutine spcam_radiation_finalize_sam1mom(cam_in, state, pbuf, rad_avgdata, cam_out, cldn, net_flx, ptend)
+#endif
 
     use physconst,       only: cpair
     use rad_constituents,only: rad_cnst_out
@@ -1973,6 +1981,9 @@ subroutine spcam_radiation_finalize_sam1mom(cam_in, state, pbuf, rad_avgdata, ca
     real(r8),                          intent(inout) :: net_flx(pcols)
 
     type(physics_ptend),               intent(out)   :: ptend            ! indivdual parameterization tendencies
+#ifdef CBRAIN
+    real(r8), intent(out) :: solin_out(pcols)
+#endif
 
 #ifdef sam1mom
 
@@ -2065,6 +2076,9 @@ subroutine spcam_radiation_finalize_sam1mom(cam_in, state, pbuf, rad_avgdata, ca
     call outfld('QRS     ',rad_avgdata%qrs_m(:,:)/cpair ,pcols,lchnk)
     call outfld('QRSC    ',rad_avgdata%qrsc_m/cpair,pcols,lchnk)
     call outfld('SOLIN   ',rad_avgdata%solin_m(:) ,pcols,lchnk)
+#ifdef CBRAIN
+    solin_out = rad_avgdata%solin_m(:)
+#endif    
     call outfld('FSDS    ',rad_avgdata%fsds_m(:)  ,pcols,lchnk)
     call outfld('FSNIRTOA',rad_avgdata%fsnirt_m(:),pcols,lchnk)
     call outfld('FSNRTOAC',rad_avgdata%fsnrtc_m(:),pcols,lchnk)
