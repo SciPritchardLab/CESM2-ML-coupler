@@ -315,6 +315,7 @@ subroutine tphysbc_spcam (ztodt, state,   &
     use mod_kinds, only: ik, rk
     use mod_network , only: network_type
     use mod_ensemble, only: ensemble_type
+    use spmd_utils,       only: masterproc
 #endif
 #endif
     use phys_control,    only: phys_getopts
@@ -343,7 +344,7 @@ subroutine tphysbc_spcam (ztodt, state,   &
     type(physics_tend ) :: tend_save
     real(r8) :: nn_input(pcols,4*pver+4) 
     real(r8) :: nn_solin(pcols) 
-    real(r8) :: test_input(108)
+    real :: test_input(108) ! FKB may expect lower precision
     real(r8) :: test_output(111)
     type(network_type) :: cloudbrain_net
 #endif
@@ -606,7 +607,7 @@ subroutine tphysbc_spcam (ztodt, state,   &
     
     ! construct input vector: (TBP,QBP,CLDLIQBP,CLDICEBP,PS,SOLIN,SHFLX[t-1],LHFLX[t-1])
     nn_input(:ncol,1:pver) = state%t(:ncol,:pver)
-    nn_input(:ncol,(pver+1):(2*pver)) = state%q(:ncol,:pver)
+    nn_input(:ncol,(pver+1):(2*pver)) = state%q(:ncol,:pver,1)
     nn_input(:ncol,(pver+2):(3*pver)) = state%q(:ncol,:pver,ixcldliq)
     nn_input(:ncol,(pver+3):(4*pver)) = state%q(:ncol,:pver,ixcldice)
     nn_input(:ncol,(4*pver+1)) = state%ps(:ncol)
