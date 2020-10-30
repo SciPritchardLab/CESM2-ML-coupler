@@ -310,11 +310,7 @@ subroutine tphysbc_spcam (ztodt, state,   &
     use cam_abortutils,  only: endrun
 #ifdef CRM
     use crm_physics,     only: crm_physics_tend
-    use mod_kinds, only: ik, rk
-    use mod_network , only: network_type
-    use mod_ensemble, only: ensemble_type
 #endif
-
     use phys_control,    only: phys_getopts
     use sslt_rebin,      only: sslt_rebin_adv
     use qneg_module,     only: qneg3
@@ -339,6 +335,7 @@ subroutine tphysbc_spcam (ztodt, state,   &
 #ifdef CBRAIN
     type(physics_state) :: state_save
     type(physics_tend ) :: tend_save
+    real(r8) :: nn_input(pcols,4*pver+4) 
 #endif
     !
     !---------------------------Local workspace-----------------------------
@@ -346,7 +343,7 @@ subroutine tphysbc_spcam (ztodt, state,   &
 
     type(physics_ptend)   :: ptend            ! indivdual parameterization tendencies
     type(physics_state)   :: state_loc
-    type(network_type) :: cloudbrain_net
+
     integer :: nstep                          ! current timestep number
 
     real(r8) :: net_flx(pcols)
@@ -460,7 +457,7 @@ subroutine tphysbc_spcam (ztodt, state,   &
     end if
     ! Save state for convective tendency calculations.
     call diag_conv_tend_ini(state, pbuf)
-    call cloudbrain_net % load('/scratch/07064/tg863631/fortran_models/BF_RG_config.txt')
+
     call cnst_get_ind('CLDLIQ', ixcldliq)
     call cnst_get_ind('CLDICE', ixcldice)
     qini     (:ncol,:pver) = state%q(:ncol,:pver,       1)
@@ -587,9 +584,23 @@ subroutine tphysbc_spcam (ztodt, state,   &
     call t_stopf('cam_export')
 
 #ifdef CBRAIN
-    ! INSERT the main interface here
+    ! restore state to before physics (in future we can just #ifndef everything between there and here to avoid doing SP)
     state = state_save
     tend = tend_save
+    
+    ! construct input vector: (TBP,QBP,CLDLIQBP,CLDICEBP,PS,SOLIN,SHFLX[t-1],LHFLX[t-1])
+    nn_input(:ncol,1:pver) = state%t(:ncol,:pver)
+    nn_input(:ncol,(pver+1):(2*pver)) = state%q(:ncol,:pver)
+    nn_input(:ncol,(pver+2):(3*pver)) = state%q(:ncol,:pver,ixcldliq)
+    nn_input(:ncol,(pver+3):(4*pver)) = state%q(:ncol,:pver,ixcldice)
+    nn_input(:ncol,(4*pver+1)) = state%ps(:ncol)
+    ! INSERT SOLIN:
+!    nn_input(:ncol,(4*pver+2)) = INSERT 
+    ! INSERT SHFLX:
+!    nn_input(:ncol,(4*pver+3)) = INSERT 
+    ! INSERT LHFLX:
+!    nn_input(:ncol,(4*pver+4)) = INSERT 
+    
 #endif
 
     ! Write export state to history file
