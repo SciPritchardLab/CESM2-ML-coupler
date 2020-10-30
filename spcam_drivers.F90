@@ -308,8 +308,14 @@ subroutine tphysbc_spcam (ztodt, state,   &
     use perf_mod
     use tropopause,      only: tropopause_output
     use cam_abortutils,  only: endrun
+
 #ifdef CRM
     use crm_physics,     only: crm_physics_tend
+#ifdef CBRAIN
+    use mod_kinds, only: ik, rk
+    use mod_network , only: network_type
+    use mod_ensemble, only: ensemble_type
+#endif
 #endif
     use phys_control,    only: phys_getopts
     use sslt_rebin,      only: sslt_rebin_adv
@@ -339,6 +345,7 @@ subroutine tphysbc_spcam (ztodt, state,   &
     real(r8) :: nn_solin(pcols) 
     real(r8) :: test_input(108)
     real(r8) :: test_output(111)
+    type(network_type) :: cloudbrain_net
 #endif
     !
     !---------------------------Local workspace-----------------------------
@@ -441,6 +448,7 @@ subroutine tphysbc_spcam (ztodt, state,   &
 #ifdef CBRAIN
     state_save = state
     tend_save = tend
+    call cloudbrain_net % load('/scratch/07064/tg863631/fortran_models/BF_RG_config.txt')
 #endif
     ! compute mass integrals of input tracers state
     call check_tracers_init(state, tracerint)
@@ -609,6 +617,8 @@ subroutine tphysbc_spcam (ztodt, state,   &
     if (masterproc) then
        test_input = nn_input(1,1:108)
 !       test_output = INSERT.
+       test_output = cloudbrain_net % output(test_input)
+       write (6,*) 'YO CBRAIN handshake:', test_output(:) 
     endif
 #endif
 
