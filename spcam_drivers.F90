@@ -605,7 +605,25 @@ subroutine tphysbc_spcam (ztodt, state,   &
     state = state_save
     tend = tend_save
     
-    ! construct input vector: (TBP,QBP,CLDLIQBP,CLDICEBP,PS,SOLIN,SHFLX[t-1],LHFLX[t-1])
+    ! TODO reorganize the following into a modularized set of subroutines init vs tend in a clean module -- should really just pass state etc.  
+    !    i.e. evolve to: 
+    ! call cbrain (state,nn_solin,cam_in,ptend,cam_out) ! with the last two being outputs.
+
+    ! Read in input normalization (TODO: move to is_first_step --> init, saving data as module private)
+    unitn = getunit()
+    open( unitn, file='/path/to/input_sub.txt', status='old' )
+    read(unitn,*) nn_inputnorm_sub(:)
+    close (unitn)
+    call freeunit(unitn)
+
+    unitn = getunit()
+    open( unitn, file='/path/to/input_div.txt', status='old' )
+    read(unitn,*) nn_inputnorm_div(:)
+    close (unitn)
+    call freeunit(unitn)
+    ! TODO: read in output normalization sub and div vectors.
+
+    ! construct input vector in correct order: (TBP,QBP,CLDLIQBP,CLDICEBP,PS,SOLIN,SHFLX[t-1],LHFLX[t-1])
     nn_input(:ncol,1:pver) = state%t(:ncol,:pver)
     nn_input(:ncol,(pver+1):(2*pver)) = state%q(:ncol,:pver,1)
     nn_input(:ncol,(2*pver+1):(3*pver)) = state%q(:ncol,:pver,ixcldliq)
@@ -615,23 +633,36 @@ subroutine tphysbc_spcam (ztodt, state,   &
     nn_input(:ncol,(4*pver+3)) = cam_in%shf(:ncol)
     nn_input(:ncol,(4*pver+4)) = cam_in%lhf(:ncol) 
     
-    if (masterproc) then
-       test_input = nn_input(1,1:108)
-!       test_output = INSERT.
-       test_output = cloudbrain_net % output(test_input)
-       write (6,*) 'YO CBRAIN handshake:', test_output(:) 
-    endif
-    
-    ! TODO: normalize inputs
-    ! Ankitesh to provide two files inp_sub.txt and inp_div.txt to contain (in same order of input vector) all the sub and all the div values
-    
-    ! TODO: call the network with the normalizes inputs.
-    ! TODO: un-normalize the outputs.
+    ! Apply input normalization:
+    do i = 1,ncol
+      do k=1,124
+        nn_input(i,k) = (nn_input(i,k) - nn_inputnorm_sub(k)) / nn_inputnorm_div(k)
+      end do
+    end do
+
+    ! Calculate the neural net output from the normalized input vector:
+    do i=1,ncol
+      nn_output(i,:) = cloudbrain_net % output(nn_input(i,:))
+    end do
+
+    ! Undo NN output normalization
+    do i = 1,ncol
+      do k=1,124
+        nn_output(i,k) = nn_output(i,k) * nn_outputnorm_div(k) + nn_outputnorm_sub(k) ! CHECK this.
+      end do
+    end do
     
     ! TODO: wire in the un-normalized atmospheric outputs to the ptend structure
-    ! TODO: call the physics_update to apply the parameterization tendencies to the master state.
-    
+    ! TODO: call the physics_update to apply the parameterization tendencies to the master state.   
     ! TODO: wire in the NN2L outputs to the cam_out structure to be felt by the land model.
+ 
+!    if (masterproc) then
+!       test_input = nn_input(1,1:108)
+!       test_output = INSERT.
+!       test_output = cloudbrain_net % output(test_input)
+!       write (6,*) 'YO CBRAIN handshake:', test_output(:) 
+!    endif
+ 
     
 #endif
 
