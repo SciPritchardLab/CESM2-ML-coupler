@@ -1,14 +1,14 @@
-#include <misc.h>
-#include <params.h>
-!#define BRAINDEBUG
-
 module cloudbrain
 use shr_kind_mod,    only: r8 => shr_kind_r8
 use ppgrid,          only: pcols, pver, pverp
-use history,         only: outfld, addfld, add_default, phys_decomp
+use cam_history,         only: outfld, addfld, add_default, phys_decomp
 use physconst,       only: gravit,cpair,latvap,latice
-use pmgrid, only: masterproc
+use spmd_utils, only: masterproc
+use camsrfexch,       only: cam_out_t, cam_in_t
+use constituents,    only: cnst_get_ind
+
 !use runtime_opts, only: nn_nint, inputlength, outputlength, activation_type, width
+use physics_types,    only: physics_state,  physics_ptend
 
 ! -------- NEURAL-FORTRAN --------
 ! imports
@@ -22,85 +22,52 @@ use mod_ensemble, only: ensemble_type
 
   private
   ! Define variables for this entire module
-  integer, parameter :: nn_nint = 8
-  integer, parameter :: inputlength = 94
+  integer, parameter :: inputlength = 108 ! 26*4 + 4 scalars
   integer, parameter :: outputlength = 65
-  integer, parameter :: activation_type = 1
-  integer, parameter :: width = 256
 
-#ifdef NEURALLIB
-#ifdef ENSEMBLE
-  real(rk) :: noise = 0.0
-  type(ensemble_type) :: cloudbrain_ensemble
-#else
   type(network_type) :: cloudbrain_net
   integer(ik) :: fileunit, num_layers
   integer(ik) :: n
-#endif
-#else
-  real :: weights_inp(width, inputlength)
-  real :: bias_inp(width)
-  real :: weights_int(nn_nint, width, width)
-  real :: bias_int(nn_nint, width)
-  real :: weights_out(outputlength, width)
-  real :: bias_out(outputlength)
-#endif
 
   real :: inp_sub(inputlength)
   real :: inp_div(inputlength)
-  real :: out_scale(outputlength)
+  real :: out_sub(outputlength)
+  real :: out_div(outputlength)
 
   public neural_net, init_keras_matrices, init_keras_norm
   contains
 
-  subroutine neural_net (QBP, TBP, VBP, PS, SOLIN, SHFLX, LHFLX, &
-                         PHQ, TPHYSTND, FSNT, FSNS, FLNT, FLNS, PRECT, &
-                         icol)
-    ! PNAS version: First row = inputs, second row = outputs
-    ! icol is used for debugging to only output one colum
-    ! Allocate inputs
-    real(r8), intent(in) :: QBP(:)
-    real(r8), intent(in) :: TBP(:)   
-    real(r8), intent(in) :: VBP(:)
-    real(r8), intent(in) :: PS
-    real(r8), intent(in) :: SOLIN
-    real(r8), intent(in) :: SHFLX
-    real(r8), intent(in) :: LHFLX
-    ! Allocate outputs
-    real(r8), intent(out) :: PHQ(:)
-    real(r8), intent(out) :: TPHYSTND(:)
-    real(r8), intent(out) :: FSNT
-    real(r8), intent(out) :: FSNS
-    real(r8), intent(out) :: FLNT
-    real(r8), intent(out) :: FLNS
-    real(r8), intent(out) :: PRECT
-    ! Allocate utilities
-#ifdef NEURALLIB
-    real(rk) :: input(inputlength),x1(width), x2(width)
-#else
-    real(r8) :: input(inputlength),x1(width), x2(width)
-#endif
-    real(r8) :: output (outputlength)
-    integer :: k, nlev, n
-    integer, intent(in) :: icol
+  subroutine neural_net (state,nn_solin,cam_in,ptend,cam_out)
+    type(physics_state), intent(in)    :: state
+    real(r8), intent(in)               :: nn_solin(pcols) 
+    type(cam_in_t),intent(in)          :: cam_in
+    type(physics_ptend),intent(in)     :: ptend            ! indivdual parameterization tendencies
+    type(cam_out_t),     intent(inout) :: cam_out
 
-    ! 1. Concatenate input vector to neural network
-    nlev=30
-#ifdef NEURALLIB
-    input(1:nlev) = TBP(:) !QBP(:) 
-    input((nlev+1):2*nlev) = QBP(:) !TBP(:)
-#else
-    input(1:nlev) = QBP(:)
-    input((nlev+1):2*nlev) = TBP(:)
-#endif
-    input((2*nlev+1):3*nlev)=VBP(:)
-    input(3*nlev+1) = PS
-    input(3*nlev+2) = SOLIN
-    input(3*nlev+3) = SHFLX
-    input(3*nlev+4) = LHFLX
+    ! local variables
+    real :: input(pcols,4*pver+4)
+    integer :: ncol
+    
+    ncol  = state%ncol
+    call cnst_get_ind('CLDLIQ', ixcldliq)
+    call cnst_get_ind('CLDICE', ixcldice)
+  
+    input(:ncol,1:pver) = state%t(:ncol,:pver)
+    input(:ncol,(pver+1):(2*pver)) = state%q(:ncol,:pver,1)
+    input(:ncol,(2*pver+1):(3*pver)) = state%q(:ncol,:pver,ixcldliq)
+    input(:ncol,(3*pver+1):(4*pver)) = state%q(:ncol,:pver,ixcldice)
+    input(:ncol,(4*pver+1)) = state%ps(:ncol)
+    input(:ncol,(4*pver+2)) = nn_solin(:ncol) ! WARNING this is being lazily mined from part of SP solution... should be avoidable in future when bypassing SP totally but will take work.
+    input(:ncol,(4*pver+3)) = cam_in%shf(:ncol)
+    input(:ncol,(4*pver+4)) = cam_in%lhf(:ncol) 
+ 
+    real(rk) :: input(inputlength)!,x1(width), x2(width)
+    real(r8) :: output (outputlength)
+    integer :: k, i
+
 #ifdef BRAINDEBUG
-      if (masterproc .and. icol .eq. 1) then
-        write (6,*) 'BRAINDEBUG input pre norm=',input
+      if (masterproc) then
+        write (6,*) 'BRAINDEBUG input pre norm=',input(1,:)
       endif
 #endif
 
@@ -114,49 +81,17 @@ use mod_ensemble, only: ensemble_type
       endif
 #endif
 
-! 3. Neural network matrix multiplications and activations
-#ifdef NEURALLIB
-#ifdef ENSEMBLE
-    output = cloudbrain_ensemble % average(input)
-#else
-    ! use neural fortran library
-    output = cloudbrain_net % output(input)
-#endif
-#else
-    ! hard code layers
-    ! 3.1 1st layer: input length-->256.
-    call matmul(input, x1, inputlength, width, weights_inp, bias_inp, activation_type)
-#ifdef BRAINDEBUG
-        if (masterproc .and. icol .eq. 1) then
-          write (6,*) 'BRAINDEBUG layer = ',1
-          write (6,*) 'BRAINDEBUG output = ',x1
-        endif
-#endif
-    ! 3.2 Intermediate layers
-    do n=1,nn_nint
-      call matmul(x1, x2, width, width, weights_int(n, :, :), bias_int(n, :), activation_type)
-      x1(:) = x2(:)
-#ifdef BRAINDEBUG
-        if (masterproc .and. icol .eq. 1) then
-          write (6,*) 'BRAINDEBUG layer = ',n+1
-          write (6,*) 'BRAINDEBUG output = ',x1
-        endif
-#endif
+    do i=1,ncol
+      output(i,:) = cloudbrain_net % output(input(i,:))
     end do
-    ! 3.3 Last layer with linear activation
-    call matmul(x1, output, width, outputlength, weights_out, bias_out, 0)
-#endif
 
 #ifdef BRAINDEBUG
-      if (masterproc .and. icol .eq. 1) then
-        write (6,*) 'BRAINDEBUG output = ',output
+      if (masterproc) then
+        write (6,*) 'BRAINDEBUG output = ',output(1,:)
       endif
 #endif
 
-    ! 4. Unnormalize output
-    do k=1,outputlength
-      output(k) = output(k) / out_scale(k)
-    end do
+! INSERT output normalization
 
 #ifdef BRAINDEBUG
       if (masterproc .and. icol .eq. 1) then
@@ -164,61 +99,9 @@ use mod_ensemble, only: ensemble_type
       endif
 #endif
 
-    ! 5. Split output into components
-#ifdef NEURALLIB
-    TPHYSTND(:) =      output(1:nlev) * cpair! JORDAN SWAPPED PHQ(:)
-    PHQ(:) = output((nlev+1):2*nlev)! This is still the wrong unit, needs to be converted to W/m^2
-#else
-    PHQ(:) = output(1:nlev) 
-    TPHYSTND(:) = output((nlev+1):2*nlev) * cpair
-#endif
-    FSNT =        output(2*nlev+1)
-    FSNS =        output(2*nlev+2)
-    FLNT =        output(2*nlev+3)
-    FLNS =        output(2*nlev+4)
-    PRECT =       output(2*nlev+5)
+! INSERT wiring to ptend, cam_out
 
   end subroutine neural_net
-
-#ifdef NEURALLIB
-#else
-  subroutine matmul(inp, out, len_in, len_out, weights, bias, act_type)
-    ! Also do LeakyReLU in here
-    ! Neural network matrix multiplication
-    ! Activation type: 0 = linear, 1 = LeakyReLU
-    integer, intent(in) :: len_in, len_out, act_type
-    real, intent(in)    :: inp(len_in)
-    real, intent(out)   :: out(len_out)
-    real, intent(in)    :: bias(len_out)
-    real, intent(in)    :: weights(len_out,len_in)
-    integer             :: k, j
-  
-    out(:) = 0.
-    do k=1,len_out
-      do j=1,len_in
-        out(k) = out(k) + weights(k,j)* inp(j)
-      end do
-      out(k) = out(k) + bias(k)
-    end do
-  
-    if (act_type .eq. 1) then
-      call leaky_relu(out, len_out, 0.3)
-    end if
-  
-  end subroutine matmul
-  
-  
-  subroutine leaky_relu(x, len, alpha)
-    real, intent(inout)    :: x(len)
-    integer, intent(in)    :: len
-    real, intent(in)       :: alpha
-    integer                :: k
-    do k=1,len
-      x(k) = max(alpha * x(k), x(k))  ! Leaky ReLU
-    end do
-  end subroutine leaky_relu
-#endif
-
 
   subroutine init_keras_matrices()    
 #ifdef NEURALLIB
