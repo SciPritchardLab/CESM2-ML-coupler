@@ -32,7 +32,7 @@ use mod_ensemble, only: ensemble_type
   real :: out_sub(outputlength)
   real :: out_div(outputlength)
 
-  public neural_net, init_keras_matrices, init_keras_norm
+  public neural_net, init_neural_net
   contains
 
   subroutine neural_net (state,nn_solin,cam_in,ptend,cam_out)
