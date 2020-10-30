@@ -1,3 +1,4 @@
+#define CBRAIN
 module spcam_drivers
 
 
