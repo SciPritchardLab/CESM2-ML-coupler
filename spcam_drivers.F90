@@ -337,6 +337,8 @@ subroutine tphysbc_spcam (ztodt, state,   &
     type(physics_tend ) :: tend_save
     real(r8) :: nn_input(pcols,4*pver+4) 
     real(r8) :: nn_solin(pcols) 
+    real(r8) :: test_input(108)
+    real(r8) :: test_output(111)
 #endif
     !
     !---------------------------Local workspace-----------------------------
@@ -601,11 +603,13 @@ subroutine tphysbc_spcam (ztodt, state,   &
     nn_input(:ncol,(pver+3):(4*pver)) = state%q(:ncol,:pver,ixcldice)
     nn_input(:ncol,(4*pver+1)) = state%ps(:ncol)
     nn_input(:ncol,(4*pver+2)) = nn_solin(:ncol) ! WARNING this is being lazily mined from part of SP solution... should be avoidable in future when bypassing SP totally but will take work.
-    ! INSERT SHFLX:
-!    nn_input(:ncol,(4*pver+3)) = INSERT 
-    ! INSERT LHFLX:
-!    nn_input(:ncol,(4*pver+4)) = INSERT 
+    nn_input(:ncol,(4*pver+3)) = cam_in%shf(:ncol)
+    nn_input(:ncol,(4*pver+4)) = cam_in%lhf(:ncol) 
     
+    if (masterproc) then
+       test_input = nn_input(1,1:108)
+!       test_output = INSERT.
+    endif
 #endif
 
     ! Write export state to history file
