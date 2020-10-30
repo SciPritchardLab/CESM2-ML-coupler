@@ -608,8 +608,8 @@ subroutine tphysbc_spcam (ztodt, state,   &
     ! construct input vector: (TBP,QBP,CLDLIQBP,CLDICEBP,PS,SOLIN,SHFLX[t-1],LHFLX[t-1])
     nn_input(:ncol,1:pver) = state%t(:ncol,:pver)
     nn_input(:ncol,(pver+1):(2*pver)) = state%q(:ncol,:pver,1)
-    nn_input(:ncol,(pver+2):(3*pver)) = state%q(:ncol,:pver,ixcldliq)
-    nn_input(:ncol,(pver+3):(4*pver)) = state%q(:ncol,:pver,ixcldice)
+    nn_input(:ncol,(2*pver+1):(3*pver)) = state%q(:ncol,:pver,ixcldliq)
+    nn_input(:ncol,(3*pver+1):(4*pver)) = state%q(:ncol,:pver,ixcldice)
     nn_input(:ncol,(4*pver+1)) = state%ps(:ncol)
     nn_input(:ncol,(4*pver+2)) = nn_solin(:ncol) ! WARNING this is being lazily mined from part of SP solution... should be avoidable in future when bypassing SP totally but will take work.
     nn_input(:ncol,(4*pver+3)) = cam_in%shf(:ncol)
@@ -621,6 +621,18 @@ subroutine tphysbc_spcam (ztodt, state,   &
        test_output = cloudbrain_net % output(test_input)
        write (6,*) 'YO CBRAIN handshake:', test_output(:) 
     endif
+    
+    ! TODO: normalize inputs
+    ! Ankitesh to provide two files inp_sub.txt and inp_div.txt to contain (in same order of input vector) all the sub and all the div values
+    
+    ! TODO: call the network with the normalizes inputs.
+    ! TODO: un-normalize the outputs.
+    
+    ! TODO: wire in the un-normalized atmospheric outputs to the ptend structure
+    ! TODO: call the physics_update to apply the parameterization tendencies to the master state.
+    
+    ! TODO: wire in the NN2L outputs to the cam_out structure to be felt by the land model.
+    
 #endif
 
     ! Write export state to history file
