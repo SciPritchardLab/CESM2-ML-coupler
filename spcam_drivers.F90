@@ -310,7 +310,11 @@ subroutine tphysbc_spcam (ztodt, state,   &
     use cam_abortutils,  only: endrun
 #ifdef CRM
     use crm_physics,     only: crm_physics_tend
+    use mod_kinds, only: ik, rk
+    use mod_network , only: network_type
+    use mod_ensemble, only: ensemble_type
 #endif
+
     use phys_control,    only: phys_getopts
     use sslt_rebin,      only: sslt_rebin_adv
     use qneg_module,     only: qneg3
@@ -342,7 +346,7 @@ subroutine tphysbc_spcam (ztodt, state,   &
 
     type(physics_ptend)   :: ptend            ! indivdual parameterization tendencies
     type(physics_state)   :: state_loc
-
+    type(network_type) :: cloudbrain_net
     integer :: nstep                          ! current timestep number
 
     real(r8) :: net_flx(pcols)
@@ -456,7 +460,7 @@ subroutine tphysbc_spcam (ztodt, state,   &
     end if
     ! Save state for convective tendency calculations.
     call diag_conv_tend_ini(state, pbuf)
-
+    call cloudbrain_net % load('/scratch/07064/tg863631/fortran_models/BF_RG_config.txt')
     call cnst_get_ind('CLDLIQ', ixcldliq)
     call cnst_get_ind('CLDICE', ixcldice)
     qini     (:ncol,:pver) = state%q(:ncol,:pver,       1)
