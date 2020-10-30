@@ -331,6 +331,11 @@ subroutine tphysbc_spcam (ztodt, state,   &
 
 
 #ifdef CRM
+
+#ifdef CBRAIN
+    type(physics_state) :: state_save
+    type(physics_tend ) :: tend_save
+#endif
     !
     !---------------------------Local workspace-----------------------------
     !
@@ -429,7 +434,10 @@ subroutine tphysbc_spcam (ztodt, state,   &
     ! Dump out "before physics" state
     !
     call diag_state_b4_phys_write (state)
-
+#ifdef CBRAIN
+    state_save = state
+    tend_save = tend
+#endif
     ! compute mass integrals of input tracers state
     call check_tracers_init(state, tracerint)
 
@@ -573,6 +581,12 @@ subroutine tphysbc_spcam (ztodt, state,   &
     call t_startf('cam_export')
     call cam_export (state,cam_out,pbuf)
     call t_stopf('cam_export')
+
+#ifdef CBRAIN
+    ! INSERT the main interface here
+    state = state_save
+    tend = tend_save
+#endif
 
     ! Write export state to history file
     call t_startf('diag_export')
