@@ -311,12 +311,10 @@ subroutine tphysbc_spcam (ztodt, state,   &
 
 #ifdef CRM
     use crm_physics,     only: crm_physics_tend
-#ifdef CBRAIN
-    use mod_kinds, only: ik, rk
-    use mod_network , only: network_type
-    use mod_ensemble, only: ensemble_type
     use spmd_utils,       only: masterproc
-#endif
+#ifdef CBRAIN    
+    use cloudbrain, only : neural_net, init_neural_net
+#endif    
 #endif
     use phys_control,    only: phys_getopts
     use sslt_rebin,      only: sslt_rebin_adv
@@ -342,11 +340,6 @@ subroutine tphysbc_spcam (ztodt, state,   &
 #ifdef CBRAIN
     type(physics_state) :: state_save
     type(physics_tend ) :: tend_save
-    real(r8) :: nn_input(pcols,4*pver+4) 
-    real(r8) :: nn_solin(pcols) 
-    real :: test_input(108) ! FKB may expect lower precision
-    real(r8) :: test_output(111)
-    type(network_type) :: cloudbrain_net
 #endif
     !
     !---------------------------Local workspace-----------------------------
@@ -449,7 +442,6 @@ subroutine tphysbc_spcam (ztodt, state,   &
 #ifdef CBRAIN
     state_save = state
     tend_save = tend
-    call cloudbrain_net % load('/scratch/07064/tg863631/fortran_models/BF_RG_config.txt')
 #endif
     ! compute mass integrals of input tracers state
     call check_tracers_init(state, tracerint)
@@ -553,6 +545,8 @@ subroutine tphysbc_spcam (ztodt, state,   &
           end do
        end do
 #ifdef CBRAIN
+! Warning this is a hacky way to get SOLIN from interior to SP (pritch)
+! When it comes time to bypass SP entirely for speedup we need a better way to get it.
        call spcam_radiation_finalize_sam1mom(cam_in, state, pbuf, rad_avgdata_sam1mom, cam_out, cldn, net_flx, ptend,nn_solin)
 #else
        call spcam_radiation_finalize_sam1mom(cam_in, state, pbuf, rad_avgdata_sam1mom, cam_out, cldn, net_flx, ptend)
@@ -601,69 +595,16 @@ subroutine tphysbc_spcam (ztodt, state,   &
     call t_stopf('cam_export')
 
 #ifdef CBRAIN
-    ! restore state to before physics (in future we can just #ifndef everything between there and here to avoid doing SP)
+! =============================== NEURAL NETWORK SUBSUMES TPHYSBC HERE =========================
+! restore state to before physics (in future we can just #ifndef everything between there and here to avoid doing SP)
     state = state_save
     tend = tend_save
     
-    ! TODO reorganize the following into a modularized set of subroutines init vs tend in a clean module -- should really just pass state etc.  
-    !    i.e. evolve to: 
-    ! call cbrain (state,nn_solin,cam_in,ptend,cam_out) ! with the last two being outputs.
-
-    ! Read in input normalization (TODO: move to is_first_step --> init, saving data as module private)
-    unitn = getunit()
-    open( unitn, file='/path/to/input_sub.txt', status='old' )
-    read(unitn,*) nn_inputnorm_sub(:)
-    close (unitn)
-    call freeunit(unitn)
-
-    unitn = getunit()
-    open( unitn, file='/path/to/input_div.txt', status='old' )
-    read(unitn,*) nn_inputnorm_div(:)
-    close (unitn)
-    call freeunit(unitn)
-    ! TODO: read in output normalization sub and div vectors.
-
-    ! construct input vector in correct order: (TBP,QBP,CLDLIQBP,CLDICEBP,PS,SOLIN,SHFLX[t-1],LHFLX[t-1])
-    nn_input(:ncol,1:pver) = state%t(:ncol,:pver)
-    nn_input(:ncol,(pver+1):(2*pver)) = state%q(:ncol,:pver,1)
-    nn_input(:ncol,(2*pver+1):(3*pver)) = state%q(:ncol,:pver,ixcldliq)
-    nn_input(:ncol,(3*pver+1):(4*pver)) = state%q(:ncol,:pver,ixcldice)
-    nn_input(:ncol,(4*pver+1)) = state%ps(:ncol)
-    nn_input(:ncol,(4*pver+2)) = nn_solin(:ncol) ! WARNING this is being lazily mined from part of SP solution... should be avoidable in future when bypassing SP totally but will take work.
-    nn_input(:ncol,(4*pver+3)) = cam_in%shf(:ncol)
-    nn_input(:ncol,(4*pver+4)) = cam_in%lhf(:ncol) 
-    
-    ! Apply input normalization:
-    do i = 1,ncol
-      do k=1,124
-        nn_input(i,k) = (nn_input(i,k) - nn_inputnorm_sub(k)) / nn_inputnorm_div(k)
-      end do
-    end do
-
-    ! Calculate the neural net output from the normalized input vector:
-    do i=1,ncol
-      nn_output(i,:) = cloudbrain_net % output(nn_input(i,:))
-    end do
-
-    ! Undo NN output normalization
-    do i = 1,ncol
-      do k=1,124
-        nn_output(i,k) = nn_output(i,k) * nn_outputnorm_div(k) + nn_outputnorm_sub(k) ! CHECK this.
-      end do
-    end do
-    
-    ! TODO: wire in the un-normalized atmospheric outputs to the ptend structure
-    ! TODO: call the physics_update to apply the parameterization tendencies to the master state.   
-    ! TODO: wire in the NN2L outputs to the cam_out structure to be felt by the land model.
- 
-!    if (masterproc) then
-!       test_input = nn_input(1,1:108)
-!       test_output = INSERT.
-!       test_output = cloudbrain_net % output(test_input)
-!       write (6,*) 'YO CBRAIN handshake:', test_output(:) 
-!    endif
- 
-    
+    call init_neural_net() ! TODO isolate to first time step.
+    call neural_net (state,nn_solin,cam_in,ptend,cam_out) ! returns ptend and cam_out
+    call physics_update (state, ptend, ztodt, tend)
+    ! WARNING no history file variables are wired to the actual state coming out of the NN, nor the tendencies
+    ! TODO: add output variables here.
 #endif
 
     ! Write export state to history file
