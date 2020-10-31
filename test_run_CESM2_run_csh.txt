@@ -2,8 +2,8 @@
 # This script automatically download cesm2 
 # Once the job is finished, it helps to submit the job
 
-set run_time       = 01:50:00
-set queue          = skx-normal
+set run_time       = 00:15:00
+set queue          = development
 #set queue          = normal
 set account        = TG-ATM190002
 set run_start_date = "2003-01-02"
@@ -14,8 +14,7 @@ set pcount         = 1024
 ## ====================================================================
 
 setenv CCSMTAG     CESM
-setenv CASE        CESM2_f19_v14_updated_NN_pelayout01_ens_07
-#setenv CASESET     F_2000_SPCAM_sam1mom_SP 
+setenv CASE        CESM2_f19_FKBtest_01
 setenv CASESET     HIST_CAM%SPCAMS_CLM50%SP_CICE%PRES_DOCN%DOM_RTM_SGLC_SWAV
 setenv CASERES     f19_f19_mg17
 setenv PROJECT     TG-ATM190002
@@ -24,11 +23,11 @@ setenv PROJECT     TG-ATM190002
 #   define directories <Please make sure the directories are correct>
 ## ====================================================================
 
-setenv MACH      stampede2-skx
-#setenv MACH      stampede2-knl
+#setenv MACH      stampede2-skx
+setenv MACH      stampede2-knl
 setenv CCSMROOT  $HOME/repositories/$CCSMTAG
 setenv CODEDIR   $HOME/repositories/CESM2-neuralnet-UCI
-setenv CASEROOT  $SCRATCH/CESM2_case/$CASE
+setenv CASEROOT  $HOME/CESM2_case/$CASE
 setenv PTMP      $SCRATCH/
 setenv RUNDIR    $PTMP/$CASE/run
 setenv ARCHDIR   $PTMP/archive/$CASE
