@@ -43,8 +43,9 @@ use mod_ensemble, only: ensemble_type
     type(cam_out_t),     intent(inout) :: cam_out
 
     ! local variables
-    real :: input(pcols,4*pver+4)
-    integer :: ncol
+    real :: input(pcols,inputlength)
+    real :: output(pcols,outputlength)
+    integer :: i,k,ncol
     
     ncol  = state%ncol
     call cnst_get_ind('CLDLIQ', ixcldliq)
@@ -60,9 +61,6 @@ use mod_ensemble, only: ensemble_type
     input(:ncol,(4*pver+3)) = cam_in%shf(:ncol)
     input(:ncol,(4*pver+4)) = cam_in%lhf(:ncol) 
  
-    real(rk) :: input(inputlength)!,x1(width), x2(width)
-    real(r8) :: output (outputlength)
-    integer :: k, i
 
 #ifdef BRAINDEBUG
       if (masterproc) then
@@ -93,8 +91,8 @@ use mod_ensemble, only: ensemble_type
 ! INSERT output normalization
 
 #ifdef BRAINDEBUG
-      if (masterproc .and. icol .eq. 1) then
-        write (iulog,*) 'BRAINDEBUG out post scale = ',output
+      if (masterproc) then
+        write (iulog,*) 'BRAINDEBUG out post scale = ',output(1,:)
       endif
 #endif
 
