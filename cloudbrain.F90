@@ -29,8 +29,7 @@ use mod_ensemble, only: ensemble_type
 
   real :: inp_sub(inputlength)
   real :: inp_div(inputlength)
-  real :: out_sub(outputlength)
-  real :: out_div(outputlength)
+  real :: out_weight(outputlength)
 
   public neural_net, init_neural_net
   contains
@@ -87,8 +86,12 @@ use mod_ensemble, only: ensemble_type
         write (iulog,*) 'BRAINDEBUG output = ',output(1,:)
       endif
 #endif
-
-! INSERT output normalization
+   ! output normalization (un-weighting, really).
+   do i=1,ncol
+     do k=1,outputlength
+      output(i,k) = output(i,k) / out_weight(k)
+     end do
+   end do
 
 #ifdef BRAINDEBUG
       if (masterproc) then
@@ -114,10 +117,13 @@ end subroutine neural_net
     open (unit=555,file='/scratch/07064/tg863631/frontera_data/data/inp_div.txt',status='old',action='read')
     read(555,*) inp_div(:)
     
+    open (unit=555,file='/scratch/07064/tg863631/frontera_data/data/scale_dict_output.txt',status='old',action='read')
+    read(555,*) out_weight(:)
     #ifdef BRAINDEBUG
     if (masterproc)
        write (iulog,*) 'BRAINDEBUG read input norm inp_sub=', inp_sub(:)
        write (iulog,*) 'BRAINDEBUG read input norm inp_div=', inp_div(:)       
+       write (iulog,*) 'BRAINDEBUG read output norm out_scale=', out_scale(:)       
     #endif
 
   end subroutine init_neural_net
