@@ -1,20 +1,32 @@
 Quickstart:
 ----------
 
-I. INSTALL FKB with same compiler version as used in CESM2 for the machine file you specify (check module syntax in config_machines.xml for your machine), e.g. at stampede2:
+I. INSTALL FKB. 
 
   git clone https://github.com/scientific-computing/FKB.git
   cd FKB
+(Make sure to use same compiler version as used in CESM2 (for the machine you work on; check its module syntax in config_machines.xml to clarify), e.g. at stampede2:)
   module load intel/17.0.04
+(edit build_steps.sh with the stampede2 wrapper:)  
   FC='mpif90 -qopenmp' cmake .. -DSERIAL=1
-  sh build_steps.sh
-  
-  (this will install critical stuff in local FKB/build/lib and FKB/build/include --> take note of abs paths for reuse in II below)
+  sh build_steps.sh  
+(this will install critical stuff in local FKB/build/lib and FKB/build/include --> take note of abs paths for use in II below)
   
 II. Update CESM2 machine files to link FKB libraries and pre-compiled module files as follows:
 
+Inside config_compilers.xml this might look like (see ***)
 
+  <FFLAGS>
+    <append> -xCOMMON-AVX512 -no-fma </append>
+    <append MPILIB="mpi-serial"> -mcmodel medium </append>
+***    <append> -I$ENV{HOME}/FKB/repositories/build/include </append>
+</FFLAGS>
+  <LDFLAGS>
+    <append>-L$ENV{TACC_HDF5_LIB} -lhdf5 $(MKL) -zmuldefs -xCOMMON-AVX512</append>
+***    <append>-L$ENV{HOME}/repositories/FKB/build/lib -lneural </append>
+</LDFLAGS>
 
+III.
 
 Put source mods for the cam library in this directory.
 
