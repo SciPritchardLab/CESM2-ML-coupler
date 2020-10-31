@@ -1,3 +1,21 @@
+Quickstart:
+----------
+
+I. INSTALL FKB with same compiler version as used in CESM2 for the machine file you specify (check module syntax in config_machines.xml for your machine), e.g. at stampede2:
+
+  git clone https://github.com/scientific-computing/FKB.git
+  cd FKB
+  module load intel/17.0.04
+  FC='mpif90 -qopenmp' cmake .. -DSERIAL=1
+  sh build_steps.sh
+  
+  (this will install critical stuff in local FKB/build/lib and FKB/build/include --> take note of abs paths for reuse in II below)
+  
+II. Update CESM2 machine files to link FKB libraries and pre-compiled module files as follows:
+
+
+
+
 Put source mods for the cam library in this directory.
 
 WARNING: SourceMods are not kept under version control, and can easily
