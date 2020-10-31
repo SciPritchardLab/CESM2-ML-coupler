@@ -42,7 +42,7 @@ setenv DATADIR   $SCRATCH/SPCAM_input
 #cd $CCSMROOT
 #./manage_externals/checkout_externals
 #./manage_externals/checkout_externals --logging
-#git clone git@github.com:mspritch/CESM2-neuralnet-UCI.git $CODEDIR
+git clone git@github.com:mspritch/CESM2-neuralnet-UCI.git $CODEDIR
 
 ## ====================================================================
 #   create new case, configure, compile and run
