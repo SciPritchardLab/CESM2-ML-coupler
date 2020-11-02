@@ -16,6 +16,9 @@ use pkg_cldoptics,    only: cldems, cldovrlap, cldefr
 use phys_grid,        only: get_rlat_all_p, get_rlon_all_p
 use cam_history,      only: outfld
 use cam_history_support, only : fillvalue
+#ifdef CBRAIN
+use time_manager,    only: is_first_step
+#endif
 
 implicit none
 save
@@ -342,6 +345,7 @@ subroutine tphysbc_spcam (ztodt, state,   &
     type(physics_state) :: state_save
     type(physics_tend ) :: tend_save
     real (r8) :: nn_solin(pcols)
+    real (r8) :: ftem3 (pcols,pver)
 #endif
     !
     !---------------------------Local workspace-----------------------------
@@ -599,14 +603,23 @@ subroutine tphysbc_spcam (ztodt, state,   &
 #ifdef CBRAIN
 ! =============================== NEURAL NETWORK SUBSUMES TPHYSBC HERE =========================
 ! restore state to before physics (in future we can just #ifndef everything between there and here to avoid doing SP)
+
+if (is_first_step()) then
+    call init_neural_net() ! TODO isolate to first time step.
+else
     state = state_save
     tend = tend_save
-    
-    call init_neural_net() ! TODO isolate to first time step.
+
+
+    ftem3(:ncol,:pver)  = tend%dtdt(:ncol,:pver)
+    call outfld('SPTTENDBC',ftem3, pcols, lchnk )
+
+
     call neural_net (state,nn_solin,cam_in,ztodt,ptend,cam_out) ! returns ptend and cam_out
     call physics_update (state, ptend, ztodt, tend)
-    ! WARNING no history file variables are wired to the actual state coming out of the NN, nor the tendencies
-    ! TODO: add output variables here.
+    ftem3(:ncol,:pver)  = tend%dtdt(:ncol,:pver)
+    call outfld('NNTTENDBC',ftem3, pcols, lchnk )
+endif
 #endif
 
     ! Write export state to history file

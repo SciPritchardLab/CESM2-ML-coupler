@@ -357,6 +357,10 @@ subroutine crm_physics_init(pbuf2d)
   call addfld(apcnst(ixcldice), (/ 'lev' /), 'A', 'kg/kg   ', trim(cnst_name(ixcldice))//' after physics'  )
   call addfld(bpcnst(ixcldice), (/ 'lev' /), 'A', 'kg/kg   ', trim(cnst_name(ixcldice))//' before physics' )
 
+  call addfld ('SPTTENDBC',(/ 'lev' /), 'A', 'K/s     ','T tendency due to SP BP-->BC'                   )
+  call addfld ('NNTTENDBC',(/ 'lev' /), 'A', 'K/s     ','T tendency due to NN BP-->BC'                   )
+
+
   call addfld ('PRES    ',(/ 'lev' /), 'A', 'Pa      ','Pressure'                                )
   call addfld ('DPRES   ',(/ 'lev' /), 'A', 'Pa      ','Pressure thickness of layer'             )
   call addfld ('SPDT    ',(/ 'lev' /), 'A', 'K/s     ','T tendency due to CRM'                   )
