@@ -146,7 +146,7 @@ use mod_ensemble, only: ensemble_type
 
 ! Wire to ptend:
    ptend%ls = .true.
-   ptend%s(:ncol,:) = s_bctend(:ncol,:pver) ! physics_tend expects J/kg/s for heating 
+   ptend%s(:ncol,:pver) = s_bctend(:ncol,:pver) ! physics_tend expects J/kg/s for heating 
    ptend%lq = .true.
    ptend%q(:ncol,:pver,1) = q_bctend(:ncol,:pver)
    ptend%q(:ncol,:pver,ixcldliq) = qc_bctend(:ncol,:pver)
