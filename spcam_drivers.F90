@@ -341,6 +341,7 @@ subroutine tphysbc_spcam (ztodt, state,   &
 #ifdef CBRAIN
     type(physics_state) :: state_save
     type(physics_tend ) :: tend_save
+    real (r8) :: nn_solin(pcols)
 #endif
     !
     !---------------------------Local workspace-----------------------------

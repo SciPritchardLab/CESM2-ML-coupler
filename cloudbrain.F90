@@ -2,7 +2,7 @@
 module cloudbrain
 use shr_kind_mod,    only: r8 => shr_kind_r8
 use ppgrid,          only: pcols, pver, pverp
-use cam_history,         only: outfld, addfld, add_default, phys_decomp
+use cam_history,         only: outfld, addfld, add_default
 use physconst,       only: gravit,cpair,latvap,latice
 use spmd_utils, only: masterproc
 use camsrfexch,       only: cam_out_t, cam_in_t
@@ -35,7 +35,8 @@ use mod_ensemble, only: ensemble_type
   contains
 
   subroutine neural_net (state,nn_solin,cam_in,ptend,cam_out)
-    type(physics_state), intent(in)    :: state
+ 
+   type(physics_state), intent(in)    :: state
     real(r8), intent(in)               :: nn_solin(pcols) 
     type(cam_in_t),intent(in)          :: cam_in
     type(physics_ptend),intent(in)     :: ptend            ! indivdual parameterization tendencies
@@ -44,7 +45,7 @@ use mod_ensemble, only: ensemble_type
     ! local variables
     real :: input(pcols,inputlength)
     real :: output(pcols,outputlength)
-    integer :: i,k,ncol
+    integer :: i,k,ncol,ixcldice,ixcldliq
     
     ncol  = state%ncol
     call cnst_get_ind('CLDLIQ', ixcldliq)
@@ -69,7 +70,7 @@ use mod_ensemble, only: ensemble_type
 
     ! 2. Normalize input
     do k=1,inputlength
-      input(k) = (input(k) - inp_sub(k))/inp_div(k)
+      input(:ncol,k) = (input(:ncol,k) - inp_sub(k))/inp_div(k)
     end do
 #ifdef BRAINDEBUG
       if (masterproc) then
@@ -119,12 +120,13 @@ end subroutine neural_net
     
     open (unit=555,file='/scratch/07064/tg863631/frontera_data/data/scale_dict_output.txt',status='old',action='read')
     read(555,*) out_weight(:)
-    #ifdef BRAINDEBUG
-    if (masterproc)
+ #ifdef BRAINDEBUG
+    if (masterproc) then
        write (iulog,*) 'BRAINDEBUG read input norm inp_sub=', inp_sub(:)
        write (iulog,*) 'BRAINDEBUG read input norm inp_div=', inp_div(:)       
-       write (iulog,*) 'BRAINDEBUG read output norm out_scale=', out_scale(:)       
-    #endif
+       write (iulog,*) 'BRAINDEBUG read output norm out_weight=', out_weight(:)       
+    endif
+ #endif
 
   end subroutine init_neural_net
     
