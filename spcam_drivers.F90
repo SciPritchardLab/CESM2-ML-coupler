@@ -603,7 +603,7 @@ subroutine tphysbc_spcam (ztodt, state,   &
     tend = tend_save
     
     call init_neural_net() ! TODO isolate to first time step.
-    call neural_net (state,nn_solin,cam_in,ptend,cam_out) ! returns ptend and cam_out
+    call neural_net (state,nn_solin,cam_in,ztodt,ptend,cam_out) ! returns ptend and cam_out
     call physics_update (state, ptend, ztodt, tend)
     ! WARNING no history file variables are wired to the actual state coming out of the NN, nor the tendencies
     ! TODO: add output variables here.
