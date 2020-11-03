@@ -593,7 +593,7 @@ subroutine tphysbc_spcam (ztodt, state,   &
     call t_stopf('tropopause')
 
 !if (masterproc) write(iulog,*) 'Liran Test HERE!!!!'
-    call diag_state_b4_coupling (state) ! pritch & beucler.
+    call diag_state_b4_coupling (state) ! pritch & beucler (contains SP tendency impacts).
 
     ! Save atmospheric fields to force surface models
     call t_startf('cam_export')
@@ -607,18 +607,33 @@ subroutine tphysbc_spcam (ztodt, state,   &
 if (is_first_step()) then
     call init_neural_net() ! TODO isolate to first time step.
 else
+    ! Save off control tendencies under standard SP before forgetting them:
+    ftem3(:ncol,:pver) = state%q(:ncol,:pver,1) - state_save%q(:ncol,:pver,1)
+    call outfld ('SP_BP2BC_DQ',ftem3,pcols,lchnk)
+    ftem3(:ncol,:pver) = (state%s(:ncol,:pver) - state_save%s(:ncol,:pver))/cpair
+    call outfld ('SP_BP2BC_DT',ftem3,pcols,lchnk)
+    ftem3(:ncol,:pver) = state%q(:ncol,:pver,ixcldliq) - state_save%q(:ncol,:pver,ixcldliq)
+    call outfld ('SP_BP2BC_DQC',ftem3,pcols,lchnk)
+    ftem3(:ncol,:pver) = state%q(:ncol,:pver,ixcldice) - state_save%q(:ncol,:pver,ixcldice)
+    call outfld ('SP_BP2BC_DQI',ftem3,pcols,lchnk)
+
+    ! Override what standard SP & explicit physics had done...
     state = state_save
     tend = tend_save
 
-
-    ftem3(:ncol,:pver)  = tend%dtdt(:ncol,:pver)
-    call outfld('SPTTENDBC',ftem3, pcols, lchnk )
-
-
+    ! ...Replace with the NN answer:
     call neural_net (state,nn_solin,cam_in,ztodt,ptend,cam_out) ! returns ptend and cam_out
     call physics_update (state, ptend, ztodt, tend)
-    ftem3(:ncol,:pver)  = tend%dtdt(:ncol,:pver)
-    call outfld('NNTTENDBC',ftem3, pcols, lchnk )
+
+    ! Self-consistent NN increments for diagnosis vs. SP
+    ftem3(:ncol,:pver) = state%q(:ncol,:pver,1) - state_save%q(:ncol,:pver,1)
+    call outfld ('NN_BP2BC_DQ',ftem3,pcols,lchnk)
+    ftem3(:ncol,:pver) = (state%s(:ncol,:pver) - state_save%s(:ncol,:pver))/cpair
+    call outfld ('NN_BP2BC_DT',ftem3,pcols,lchnk)
+    ftem3(:ncol,:pver) = state%q(:ncol,:pver,ixcldliq) - state_save%q(:ncol,:pver,ixcldliq)
+    call outfld ('NN_BP2BC_DQC',ftem3,pcols,lchnk)
+    ftem3(:ncol,:pver) = state%q(:ncol,:pver,ixcldice) - state_save%q(:ncol,:pver,ixcldice)
+    call outfld ('NN_BP2BC_DQI',ftem3,pcols,lchnk)
 endif
 #endif
 

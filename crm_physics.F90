@@ -1,3 +1,4 @@
+#define CBRAIN
 module crm_physics
 !-----------------------------------------------------------------------
 ! Purpose: 
@@ -357,9 +358,17 @@ subroutine crm_physics_init(pbuf2d)
   call addfld(apcnst(ixcldice), (/ 'lev' /), 'A', 'kg/kg   ', trim(cnst_name(ixcldice))//' after physics'  )
   call addfld(bpcnst(ixcldice), (/ 'lev' /), 'A', 'kg/kg   ', trim(cnst_name(ixcldice))//' before physics' )
 
-  call addfld ('SPTTENDBC',(/ 'lev' /), 'A', 'K/s     ','T tendency due to SP BP-->BC'                   )
-  call addfld ('NNTTENDBC',(/ 'lev' /), 'A', 'K/s     ','T tendency due to NN BP-->BC'                   )
+#ifdef CBRAIN
+  call addfld ('NN_BP2BC_DT',(/ 'lev' /), 'A', 'K     ','T increment due to NN BP-->BC'                   )
+  call addfld ('NN_BP2BC_DQ',(/ 'lev' /), 'A', 'kg/kg ','Q increment due to NN BP-->BC'                   )
+  call addfld ('NN_BP2BC_DQC',(/ 'lev' /), 'A', 'kg/kg','QC increment due to NN BP-->BC'                   )
+  call addfld ('NN_BP2BC_DQI',(/ 'lev' /), 'A', 'kg/kg','QI increment due to NN BP-->BC'                   )
 
+  call addfld ('SP_BP2BC_DT',(/ 'lev' /), 'A', 'K     ','T increment due to SP BP-->BC'                   )
+  call addfld ('SP_BP2BC_DQ',(/ 'lev' /), 'A', 'kg/kg ','Q increment due to SP BP-->BC'                   )
+  call addfld ('SP_BP2BC_DQC',(/ 'lev' /), 'A', 'kg/kg    ','QC increment due to SP BP-->BC'                   )
+  call addfld ('SP_BP2BC_DQI',(/ 'lev' /), 'A', 'kg/kg   ','QI increment due to SP BP-->BC'                   )
+#endif
 
   call addfld ('PRES    ',(/ 'lev' /), 'A', 'Pa      ','Pressure'                                )
   call addfld ('DPRES   ',(/ 'lev' /), 'A', 'Pa      ','Pressure thickness of layer'             )
