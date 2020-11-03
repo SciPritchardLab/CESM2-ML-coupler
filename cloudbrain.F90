@@ -1,13 +1,14 @@
 #define BRAINDEBUG
 module cloudbrain
+use constituents,    only: pcnst
 use shr_kind_mod,    only: r8 => shr_kind_r8
 use ppgrid,          only: pcols, pver, pverp
 use cam_history,         only: outfld, addfld, add_default
 use physconst,       only: gravit,cpair,latvap,latice
-use spmd_utils, only: masterproc
+use spmd_utils, only: masterproc,iam
 use camsrfexch,       only: cam_out_t, cam_in_t
 use constituents,    only: cnst_get_ind
-use physics_types,    only: physics_state,  physics_ptend
+use physics_types,    only: physics_state,  physics_ptend, physics_ptend_init
 use cam_logfile,       only: iulog
 
 ! -------- NEURAL-FORTRAN --------
@@ -23,7 +24,8 @@ use mod_ensemble, only: ensemble_type
   private
   ! Define variables for this entire module
   integer, parameter :: inputlength = 108 ! 26*4 + 4 scalars
-  integer, parameter :: outputlength = 112 ! 26*4 + 8 scalars
+!  integer, parameter :: outputlength = 112 ! 26*4 + 8 scalars
+  integer, parameter :: outputlength = 111 ! 26*4 + 7 scalars (error, Ankitesh forgot one of the NN2L outputs)
 
   type(network_type) :: cloudbrain_net
 
@@ -36,22 +38,39 @@ use mod_ensemble, only: ensemble_type
 
   subroutine neural_net (state,nn_solin,cam_in,ztodt,ptend,cam_out)
  ! note state is meant to have the "BP" state saved earlier. 
+
+   implicit none
+
    type(physics_state), intent(in)    :: state
-    real(r8), intent(in)               :: nn_solin(pcols) 
-    type(cam_in_t),intent(in)          :: cam_in
-    real(r8), intent(in) :: ztodt 
-    type(physics_ptend),intent(inout)     :: ptend            ! indivdual parameterization tendencies
-    type(cam_out_t),     intent(inout) :: cam_out
+   real(r8), intent(in)               :: nn_solin(pcols) 
+   type(cam_in_t),intent(in)          :: cam_in
+   real(r8), intent(in) :: ztodt 
+   type(physics_ptend),intent(out) :: ptend            ! indivdual parameterization tendencies
+   type(cam_out_t),     intent(out) :: cam_out
 
     ! local variables
-    real :: input(pcols,inputlength)
-    real :: output(pcols,outputlength)
-    integer :: i,k,ncol,ixcldice,ixcldliq
-    real (r8) :: s_bctend(pcols,pver), q_bctend(pcols,pver), qc_bctend(pcols,pver), qi_bctend(pcols,pver), qafter, safter
-    
-    ncol  = state%ncol
-    call cnst_get_ind('CLDLIQ', ixcldliq)
-    call cnst_get_ind('CLDICE', ixcldice)
+   real :: input(pcols,inputlength)
+   real :: output(pcols,outputlength)
+   integer :: i,k,ncol,ixcldice,ixcldliq,ii,kk
+   real (r8) :: s_bctend(pcols,pver), q_bctend(pcols,pver), qc_bctend(pcols,pver), qi_bctend(pcols,pver), qafter, safter
+   logical :: doconstraints
+   logical ::  lq(pcnst)
+   ncol  = state%ncol
+   call cnst_get_ind('CLDLIQ', ixcldliq)
+   call cnst_get_ind('CLDICE', ixcldice)
+   lq(:)        = .FALSE.
+   lq(ixcldliq) = .TRUE.
+   lq(ixcldice) = .TRUE.
+   lq(1) = .TRUE.
+   call physics_ptend_init(ptend, state%psetcols, 'neural-net', ls=.true.,lq=lq)   ! Initialize local physics_ptend object
+
+   doconstraints = .true.
+   
+   s_bctend(:,:) = 0.
+   q_bctend(:,:) = 0.
+   qc_bctend(:,:) = 0.
+   qi_bctend(:,:) = 0.
+ 
   
   ! Ankitesh says on Slack that ['QBP','TBP','CLDLIQBP','CLDICEBP','PS', 'SOLIN', 'SHFLX', 'LHFLX']
     input(:ncol,1:pver) = state%q(:ncol,:pver,1)
@@ -111,53 +130,56 @@ use mod_ensemble, only: ensemble_type
 
 ! ---------- 1. NN output to atmosphere forcing --------
 
-   s_bctend = cpair*output(:ncol,1:pver) ! K/s --> J/kg/s
-   q_bctend = output(:ncol,(pver+1):(2*pver)) ! kg/kg/s 
-   qc_bctend = output(:ncol,(2*pver+1):(3*pver)) ! kg/kg/s 
-   qi_bctend = output(:ncol,(3*pver+1):(4*pver)) ! kg/kg/s 
+   s_bctend(:ncol,1:pver) = cpair*real(output(:ncol,1:pver),r8) ! K/s --> J/kg/s (ptend expects that)
+   q_bctend(:ncol,:pver) = real(output(:ncol,(pver+1):(2*pver)),r8) ! kg/kg/s 
+   qc_bctend(:ncol,:pver) = real(output(:ncol,(2*pver+1):(3*pver)),r8) ! kg/kg/s 
+   qi_bctend(:ncol,:pver) = real(output(:ncol,(3*pver+1):(4*pver)),r8) ! kg/kg/s 
 
 ! -- atmos positivity constraints ---- 
+   if (doconstraints) then
    do i=1,ncol
      do k=1,pver
 ! energy positivity:
        safter = state%s(i,k) + s_bctend(i,k)*ztodt ! predicted DSE after NN tendency
-       if (safter < 0.) then ! can only happen when bctend < 0...
+       if (safter .lt. 0.) then ! can only happen when bctend < 0...
          s_bctend(i,k) = s_bctend(i,k) + abs(safter)/ztodt ! in which case reduce cooling rate
          write (iulog,*) 'HEY CBRAIN made a negative absolute temperature, corrected but BEWARE!!!'
        endif
 
  ! vapor positivity:
        qafter = state%q(i,k,1) + q_bctend(i,k)*ztodt ! predicted vapor after NN tendency
-       if (qafter < 0.) then ! can only happen when qbctend < 0...
+       if (qafter .lt. 0.) then ! can only happen when qbctend < 0...
          q_bctend(i,k) = q_bctend(i,k) + abs(qafter)/ztodt ! in which case reduce drying rate
        endif
  ! liquid positivity:
        qafter = state%q(i,k,ixcldliq) + qc_bctend(i,k)*ztodt ! predicted liquid after NN tendency
-       if (qafter < 0.) then ! can only happen when qbctend < 0...
+       if (qafter .lt. 0.) then ! can only happen when qbctend < 0...
          qc_bctend(i,k) = qc_bctend(i,k) + abs(qafter)/ztodt ! in which case reduce drying rate
        endif
 ! ice positivity:
        qafter = state%q(i,k,ixcldice) + qi_bctend(i,k)*ztodt ! predicted ice after NN tendency
-       if (qafter < 0.) then ! can only happen when qbctend < 0...
+       if (qafter .lt. 0.) then ! can only happen when qbctend < 0...
          qi_bctend(i,k) = qi_bctend(i,k) + abs(qafter)/ztodt ! in which case reduce drying rate
        endif
      end do
    end do
-
+   endif
 ! Wire to ptend:
-   ptend%ls = .true.
-   ptend%s(:ncol,:pver) = s_bctend(:ncol,:pver) ! physics_tend expects J/kg/s for heating 
-   ptend%lq = .true.
-   ptend%q(:ncol,:pver,1) = q_bctend(:ncol,:pver)
-   ptend%q(:ncol,:pver,ixcldliq) = qc_bctend(:ncol,:pver)
-   ptend%q(:ncol,:pver,ixcldice) = qi_bctend(:ncol,:pver)
-   ptend%lu = .false.
+
+
+    ptend%s(:ncol,:pver) = s_bctend(:ncol,:pver)
+    ptend%q(:ncol,:pver,1) = q_bctend(:ncol,:pver)
+    ptend%q(:ncol,:pver,ixcldliq) = qc_bctend(:ncol,:pver)
+    ptend%q(:ncol,:pver,ixcldice) = qi_bctend(:ncol,:pver)
 
 ! ------------- 2. NN output to land forcing ---------
+! TODO:
 
 end subroutine neural_net
 
   subroutine init_neural_net()
+
+    implicit none
 
     call cloudbrain_net % load('/scratch/07064/tg863631/fortran_models/BF_RG_config.txt')
     write (iulog,*) '------- FKB: loaded network from txt file -------'
@@ -170,13 +192,13 @@ end subroutine neural_net
     
     open (unit=555,file='/scratch/07064/tg863631/frontera_data/data/scale_dict_output.txt',status='old',action='read')
     read(555,*) out_weight(:)
- #ifdef BRAINDEBUG
+#ifdef BRAINDEBUG
     if (masterproc) then
        write (iulog,*) 'BRAINDEBUG read input norm inp_sub=', inp_sub(:)
        write (iulog,*) 'BRAINDEBUG read input norm inp_div=', inp_div(:)       
        write (iulog,*) 'BRAINDEBUG read output norm out_weight=', out_weight(:)       
     endif
- #endif
+#endif
 
   end subroutine init_neural_net
     
