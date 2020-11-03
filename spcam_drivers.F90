@@ -318,6 +318,7 @@ subroutine tphysbc_spcam (ztodt, state,   &
     use spmd_utils,       only: masterproc
 #ifdef CBRAIN    
     use cloudbrain, only : neural_net, init_neural_net
+   use physconst,       only: cpair
 #endif    
 #endif
     use phys_control,    only: phys_getopts
