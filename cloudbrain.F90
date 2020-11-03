@@ -165,8 +165,6 @@ use mod_ensemble, only: ensemble_type
    end do
    endif
 ! Wire to ptend:
-
-
     ptend%s(:ncol,:pver) = s_bctend(:ncol,:pver)
     ptend%q(:ncol,:pver,1) = q_bctend(:ncol,:pver)
     ptend%q(:ncol,:pver,ixcldliq) = qc_bctend(:ncol,:pver)
