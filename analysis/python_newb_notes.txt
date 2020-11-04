@@ -1,7 +1,49 @@
-1) launch interactive session and note its name and launch a jupyter notebook and make sure it has the right port.
-2) shell into stampede2 login and from there shell into the interactive job with the tunnel syntax using `whoami`@its name
+1) login the way I normally do and launch interactive session and note its name and launch a jupyter notebook and make sure it has the right port.
+2) Using tunnel syntax, shell into stampede2 login and from there shell into the interactive job with the tunnel syntax using `whoami`@its name (the purpose of this 2-link ssh chain is to allow the tunnel from 1) to laptop browser)
+  tunnelstampede  (from laptop)
+  ${TUNNEL}c455-032  (from stampede2)
 
 nb the tunnel syntax is -L localhost:9142:localhost:9142
 
 3) launch a browser and paste in the stuff from 1)
 
+
+
+
+---------------
+Other random notes; the .case.run does not include all needd PBS header info, append with this:
+#SBATCH -p normal
+#SBATCH -t 00:15:00
+#SBATCH -A TG-ATM190002
+
+before doing sbatch .case.run
+
+
+
+---------------
+Other random notes; the .case.run does not include all needd PBS header info, append with this:
+#SBATCH -p normal
+#SBATCH -t 00:15:00
+#SBATCH -A TG-ATM190002
+
+before doing sbatch .case.run
+
+
+
+---------------
+Other random notes; the .case.run does not include all needd PBS header info, append with this:
+#SBATCH -p normal
+#SBATCH -t 00:15:00
+#SBATCH -A TG-ATM190002
+
+before doing sbatch .case.run
+
+
+
+---------------
+Other random notes; the .case.run does not include all needd PBS header info, append with this:
+#SBATCH -p normal
+#SBATCH -t 00:15:00
+#SBATCH -A TG-ATM190002
+
+before doing sbatch .case.run
