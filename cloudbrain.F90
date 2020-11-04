@@ -59,9 +59,9 @@ use mod_ensemble, only: ensemble_type
    call cnst_get_ind('CLDLIQ', ixcldliq)
    call cnst_get_ind('CLDICE', ixcldice)
    lq(:)        = .FALSE.
+   lq(1) = .TRUE.
    lq(ixcldliq) = .TRUE.
    lq(ixcldice) = .TRUE.
-   lq(1) = .TRUE.
    call physics_ptend_init(ptend, state%psetcols, 'neural-net', ls=.true.,lq=lq)   ! Initialize local physics_ptend object
 
    doconstraints = .true.
@@ -121,17 +121,17 @@ use mod_ensemble, only: ensemble_type
       endif
 #endif
 
-! From Tom's Slack the first 120 elements of the output vector contain atmos forcing, ordered (but need to check with Ankitesh and vs. output norms) as:
-! TBCTEND=(TBC-TBP)/DT,QBCTEND=(QBC-QBP)/DT,CLDLIQBCTEND=(CLDLIQBC-CLDLIQBP)/DT,CLDICEBCTEND=(CLDICEBC-CLDICEBP)/DT,
-! Then the land variables (there should be 8) are as:
-! NN2L_FLWDS,NN2L_NETSW(misleading name as it's downwelling shortwave),NN2L_PRECC,NN2L_PRECSC,NN2L_SOLL,NN2L_SOLLD,NN2L_SOLS,NN2L_SOLSD)
+! ['QBCTEND','TBCTEND','CLDLIQBCTEND', 'CLDICEBCTEND', 'NN2L_FLWDS',
+! 'NN2L_PRECC', 'NN2L_PRECSC', 'NN2L_SOLL', 'NN2L_SOLLD', 'NN2L_SOLS',
+! 'NN2L_SOLSD', 'NN2L_NETSW'] 
+
 ! Thus total NN output vector length is:
 ! 4*pver + 8 = 4*26 +8 = 112
 
 ! ---------- 1. NN output to atmosphere forcing --------
 
-   s_bctend(:ncol,1:pver) = cpair*real(output(:ncol,1:pver),r8) ! K/s --> J/kg/s (ptend expects that)
-   q_bctend(:ncol,:pver) = real(output(:ncol,(pver+1):(2*pver)),r8) ! kg/kg/s 
+   q_bctend(:ncol,:pver) = real(output(:ncol,1:pver),r8) ! kg/kg/s 
+   s_bctend(:ncol,1:pver) = cpair*real(output(:ncol,(pver+1):(2*pver)),r8) ! K/s --> J/kg/s (ptend expects that)
    qc_bctend(:ncol,:pver) = real(output(:ncol,(2*pver+1):(3*pver)),r8) ! kg/kg/s 
    qi_bctend(:ncol,:pver) = real(output(:ncol,(3*pver+1):(4*pver)),r8) ! kg/kg/s 
 
