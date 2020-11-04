@@ -623,7 +623,7 @@ else
     tend = tend_save
 
     ! ...Replace with the NN answer:
-    call neural_net (state,nn_solin,cam_in,ztodt,ptend,cam_out) ! returns ptend and cam_out
+    call neural_net (state,pbuf,nn_solin,cam_in,ztodt,ptend,cam_out) ! returns ptend and cam_out
     call physics_update (state, ptend, ztodt, tend)
 
     ! Self-consistent NN increments for diagnosis vs. SP
