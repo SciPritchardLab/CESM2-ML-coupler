@@ -1,0 +1,7 @@
+1) launch interactive session and note its name and launch a jupyter notebook and make sure it has the right port.
+2) shell into stampede2 login and from there shell into the interactive job with the tunnel syntax using `whoami`@its name
+
+nb the tunnel syntax is -L localhost:9142:localhost:9142
+
+3) launch a browser and paste in the stuff from 1)
+
