@@ -1,3 +1,4 @@
+#define CBRAIN
 module spcam_drivers
 
 
@@ -15,6 +16,9 @@ use pkg_cldoptics,    only: cldems, cldovrlap, cldefr
 use phys_grid,        only: get_rlat_all_p, get_rlon_all_p
 use cam_history,      only: outfld
 use cam_history_support, only : fillvalue
+#ifdef CBRAIN
+use time_manager,    only: is_first_step,  is_first_restart_step
+#endif
 
 implicit none
 save
@@ -308,8 +312,14 @@ subroutine tphysbc_spcam (ztodt, state,   &
     use perf_mod
     use tropopause,      only: tropopause_output
     use cam_abortutils,  only: endrun
+
 #ifdef CRM
     use crm_physics,     only: crm_physics_tend
+    use spmd_utils,       only: masterproc
+#ifdef CBRAIN    
+    use cloudbrain, only : neural_net, init_neural_net
+   use physconst,       only: cpair
+#endif    
 #endif
     use phys_control,    only: phys_getopts
     use sslt_rebin,      only: sslt_rebin_adv
@@ -331,6 +341,13 @@ subroutine tphysbc_spcam (ztodt, state,   &
 
 
 #ifdef CRM
+
+#ifdef CBRAIN
+    type(physics_state) :: state_save
+    type(physics_tend ) :: tend_save
+    real (r8) :: nn_solin(pcols)
+    real (r8) :: ftem3 (pcols,pver)
+#endif
     !
     !---------------------------Local workspace-----------------------------
     !
@@ -429,7 +446,10 @@ subroutine tphysbc_spcam (ztodt, state,   &
     ! Dump out "before physics" state
     !
     call diag_state_b4_phys_write (state)
-
+#ifdef CBRAIN
+    state_save = state
+    tend_save = tend
+#endif
     ! compute mass integrals of input tracers state
     call check_tracers_init(state, tracerint)
 
@@ -531,7 +551,14 @@ subroutine tphysbc_spcam (ztodt, state,   &
              call spcam_radiation_col_finalize_sam1mom(state, ii, jj, pbuf, rd, cam_out, rad_avgdata_sam1mom)
           end do
        end do
+#ifdef CBRAIN
+! Warning this is a hacky way to get SOLIN from interior to SP (pritch)
+! When it comes time to bypass SP entirely for speedup we need a better way to get it.
+       call spcam_radiation_finalize_sam1mom(cam_in, state, pbuf, rad_avgdata_sam1mom, cam_out, cldn, net_flx, ptend,nn_solin)
+#else
        call spcam_radiation_finalize_sam1mom(cam_in, state, pbuf, rad_avgdata_sam1mom, cam_out, cldn, net_flx, ptend)
+#endif
+       
 
     else if(is_spcam_m2005) then
        do jj=1,crm_ny
@@ -567,12 +594,49 @@ subroutine tphysbc_spcam (ztodt, state,   &
     call t_stopf('tropopause')
 
 !if (masterproc) write(iulog,*) 'Liran Test HERE!!!!'
-    call diag_state_b4_coupling (state) ! pritch & beucler.
+    call diag_state_b4_coupling (state) ! pritch & beucler (contains SP tendency impacts).
 
     ! Save atmospheric fields to force surface models
     call t_startf('cam_export')
     call cam_export (state,cam_out,pbuf)
     call t_stopf('cam_export')
+
+#ifdef CBRAIN
+! =============================== NEURAL NETWORK SUBSUMES TPHYSBC HERE =========================
+! restore state to before physics (in future we can just #ifndef everything between there and here to avoid doing SP)
+
+if (is_first_step() .or. is_first_restart_step()) then
+    call init_neural_net() ! TODO isolate to first time step.
+else
+    ! Save off control tendencies under standard SP before forgetting them:
+    ftem3(:ncol,:pver) = state%q(:ncol,:pver,1) - state_save%q(:ncol,:pver,1)
+    call outfld ('SP_BP2BC_DQ',ftem3,pcols,lchnk)
+    ftem3(:ncol,:pver) = (state%s(:ncol,:pver) - state_save%s(:ncol,:pver))/cpair
+    call outfld ('SP_BP2BC_DT',ftem3,pcols,lchnk)
+    ftem3(:ncol,:pver) = state%q(:ncol,:pver,ixcldliq) - state_save%q(:ncol,:pver,ixcldliq)
+    call outfld ('SP_BP2BC_DQC',ftem3,pcols,lchnk)
+    ftem3(:ncol,:pver) = state%q(:ncol,:pver,ixcldice) - state_save%q(:ncol,:pver,ixcldice)
+    call outfld ('SP_BP2BC_DQI',ftem3,pcols,lchnk)
+
+    ! Override what standard SP & explicit physics had done...
+    state = state_save
+    tend = tend_save
+
+    ! ...Replace with the NN answer:
+    call neural_net (state,nn_solin,cam_in,ztodt,ptend,cam_out) ! returns ptend and cam_out
+    call physics_update (state, ptend, ztodt, tend)
+
+    ! Self-consistent NN increments for diagnosis vs. SP
+    ftem3(:ncol,:pver) = state%q(:ncol,:pver,1) - state_save%q(:ncol,:pver,1)
+    call outfld ('NN_BP2BC_DQ',ftem3,pcols,lchnk)
+    ftem3(:ncol,:pver) = (state%s(:ncol,:pver) - state_save%s(:ncol,:pver))/cpair
+    call outfld ('NN_BP2BC_DT',ftem3,pcols,lchnk)
+    ftem3(:ncol,:pver) = state%q(:ncol,:pver,ixcldliq) - state_save%q(:ncol,:pver,ixcldliq)
+    call outfld ('NN_BP2BC_DQC',ftem3,pcols,lchnk)
+    ftem3(:ncol,:pver) = state%q(:ncol,:pver,ixcldice) - state_save%q(:ncol,:pver,ixcldice)
+    call outfld ('NN_BP2BC_DQI',ftem3,pcols,lchnk)
+endif
+#endif
 
     ! Write export state to history file
     call t_startf('diag_export')
@@ -1920,8 +1984,11 @@ subroutine spcam_radiation_col_setup_sam1mom(ii, jj, state_loc, pbuf, rad_avgdat
 end subroutine spcam_radiation_col_setup_sam1mom
 
 !===============================================================================
-
+#ifdef CBRAIN
+subroutine spcam_radiation_finalize_sam1mom(cam_in, state, pbuf, rad_avgdata, cam_out, cldn, net_flx, ptend,solin_out)
+#else
 subroutine spcam_radiation_finalize_sam1mom(cam_in, state, pbuf, rad_avgdata, cam_out, cldn, net_flx, ptend)
+#endif
 
     use physconst,       only: cpair
     use rad_constituents,only: rad_cnst_out
@@ -1944,6 +2011,9 @@ subroutine spcam_radiation_finalize_sam1mom(cam_in, state, pbuf, rad_avgdata, ca
     real(r8),                          intent(inout) :: net_flx(pcols)
 
     type(physics_ptend),               intent(out)   :: ptend            ! indivdual parameterization tendencies
+#ifdef CBRAIN
+    real(r8), intent(out) :: solin_out(pcols)
+#endif
 
 #ifdef sam1mom
 
@@ -2036,6 +2106,9 @@ subroutine spcam_radiation_finalize_sam1mom(cam_in, state, pbuf, rad_avgdata, ca
     call outfld('QRS     ',rad_avgdata%qrs_m(:,:)/cpair ,pcols,lchnk)
     call outfld('QRSC    ',rad_avgdata%qrsc_m/cpair,pcols,lchnk)
     call outfld('SOLIN   ',rad_avgdata%solin_m(:) ,pcols,lchnk)
+#ifdef CBRAIN
+    solin_out = rad_avgdata%solin_m(:)
+#endif    
     call outfld('FSDS    ',rad_avgdata%fsds_m(:)  ,pcols,lchnk)
     call outfld('FSNIRTOA',rad_avgdata%fsnirt_m(:),pcols,lchnk)
     call outfld('FSNRTOAC',rad_avgdata%fsnrtc_m(:),pcols,lchnk)
