@@ -17,7 +17,7 @@ use phys_grid,        only: get_rlat_all_p, get_rlon_all_p
 use cam_history,      only: outfld
 use cam_history_support, only : fillvalue
 #ifdef CBRAIN
-use time_manager,    only: is_first_step
+use time_manager,    only: is_first_step,  is_first_restart_step
 #endif
 
 implicit none
@@ -605,7 +605,7 @@ subroutine tphysbc_spcam (ztodt, state,   &
 ! =============================== NEURAL NETWORK SUBSUMES TPHYSBC HERE =========================
 ! restore state to before physics (in future we can just #ifndef everything between there and here to avoid doing SP)
 
-if (is_first_step()) then
+if (is_first_step() .or. is_first_restart_step()) then
     call init_neural_net() ! TODO isolate to first time step.
 else
     ! Save off control tendencies under standard SP before forgetting them:

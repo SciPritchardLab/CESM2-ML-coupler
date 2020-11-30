@@ -1,3 +1,5 @@
+#define CBRAIN
+#ifdef CBRAIN
 #define BRAINDEBUG
 module cloudbrain
 use constituents,    only: pcnst
@@ -201,3 +203,4 @@ end subroutine neural_net
   end subroutine init_neural_net
     
 end module cloudbrain
+#endif
