@@ -1,6 +1,7 @@
 #define CBRAIN
 #ifdef CBRAIN
 #define BRAINDEBUG
+#define RHDEBUG
 module cloudbrain
 use constituents,    only: pcnst
 use shr_kind_mod,    only: r8 => shr_kind_r8
@@ -28,6 +29,7 @@ use mod_ensemble, only: ensemble_type
   integer, parameter :: inputlength = 108 ! 26*4 + 4 scalars
 !  integer, parameter :: outputlength = 112 ! 26*4 + 8 scalars
   integer, parameter :: outputlength = 111 ! 26*4 + 7 scalars (error, Ankitesh forgot one of the NN2L outputs)
+  logical, parameter :: input_rh = .true. ! toggle to switch from q --> RH input
 
   type(network_type) :: cloudbrain_net
 
@@ -57,6 +59,7 @@ use mod_ensemble, only: ensemble_type
    real (r8) :: s_bctend(pcols,pver), q_bctend(pcols,pver), qc_bctend(pcols,pver), qi_bctend(pcols,pver), qafter, safter
    logical :: doconstraints
    logical ::  lq(pcnst)
+   real :: rh_loc
    ncol  = state%ncol
    call cnst_get_ind('CLDLIQ', ixcldliq)
    call cnst_get_ind('CLDICE', ixcldice)
@@ -73,9 +76,23 @@ use mod_ensemble, only: ensemble_type
    qc_bctend(:,:) = 0.
    qi_bctend(:,:) = 0.
  
-  
   ! Ankitesh says on Slack that ['QBP','TBP','CLDLIQBP','CLDICEBP','PS', 'SOLIN', 'SHFLX', 'LHFLX']
-    input(:ncol,1:pver) = state%q(:ncol,:pver,1)
+    if (input_rh) then
+       do i = 1,ncol
+         do k=1,pver
+           ! Port of tom's RH =  Rv*p*qv/(R*esat(T))
+           rh_loc = 461.*state%pmid(i,k)*state%q(i,k,1)/(287.*tom_esat(real(state%t(i,k)))) ! note function tom_esat below refercing SAM's sat.F90
+#ifdef RHDEBUG
+           if (masterproc) then
+             write (iulog,*) 'RHDEBUG:p,q,T,RH=',state%pmid(i,k),state%q(i,k,1),state%t(i,k),rh_loc
+           endif
+#endif
+           input(i,k) = rh_loc
+         end do
+       end do
+    else
+      input(:ncol,1:pver) = state%q(:ncol,:pver,1) ! specific humidity input
+    endif
     input(:ncol,(pver+1):(2*pver)) = state%t(:ncol,:pver)
     input(:ncol,(2*pver+1):(3*pver)) = state%q(:ncol,:pver,ixcldliq)
     input(:ncol,(3*pver+1):(4*pver)) = state%q(:ncol,:pver,ixcldice)
@@ -201,6 +218,27 @@ end subroutine neural_net
 #endif
 
   end subroutine init_neural_net
-    
+
+  real function tom_esat(T) 
+  ! For consistency with the python port of Tom's RH-calculator, this is how it
+  ! is formed from SAM's esatw(T) and esati(T) at the time of training.
+    implicit none
+    real T
+    real, parameter :: T0 = 273.16
+    real, parameter :: T00 = 253.16
+    real, external :: esatw_crm,esati_crm ! register functions from crm source.
+    real :: omtmp,omega
+    omtmp = (T-T00)/(T0-T00)
+    omega = max(0.,min(1.,omtmp))
+!tf.where(T>T0,eliq(T),tf.where(T<T00,eice(T),(omega*eliq(T)+(1-omega)*eice(T))))
+    if (T .gt. T0) then
+      tom_esat = esatw_crm(T)
+    elseif (T .lt. T00) then
+      tom_esat = esati_crm(T)
+    else
+      tom_esat = omega*esatw_crm(T) + (1-omega)*esati_crm(T)
+    endif
+  end
+
 end module cloudbrain
 #endif
