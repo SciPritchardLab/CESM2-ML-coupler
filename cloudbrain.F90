@@ -1,7 +1,7 @@
 #define CBRAIN
 #ifdef CBRAIN
 #define BRAINDEBUG
-#define RHDEBUG
+!#define RHDEBUG
 module cloudbrain
 use constituents,    only: pcnst
 use shr_kind_mod,    only: r8 => shr_kind_r8
@@ -233,7 +233,7 @@ end subroutine neural_net
 
   real function tom_esat(T) 
   ! For consistency with the python port of Tom's RH-calculator, this is how it
-  ! is formed from SAM's esatw(T) and esati(T) at the time of training.
+  ! was done in the training environment (Caution: could be porting bugs here)
     implicit none
     real T
     real, parameter :: T0 = 273.16
@@ -244,13 +244,56 @@ end subroutine neural_net
     omega = max(0.,min(1.,omtmp))
 !tf.where(T>T0,eliq(T),tf.where(T<T00,eice(T),(omega*eliq(T)+(1-omega)*eice(T))))
     if (T .gt. T0) then
-      tom_esat = esatw_crm(T)
+      tom_esat = tom_eliq(T)
     elseif (T .lt. T00) then
-      tom_esat = esati_crm(T)
+      tom_esat = tom_eice(T)
     else
-      tom_esat = omega*esatw_crm(T) + (1-omega)*esati_crm(T)
+      tom_esat = omega*tom_eliq(T) + (1.-omega)*tom_eice(T)
     endif
   end
+
+  real function tom_eliq(T)
+    implicit none
+    real T
+    real, parameter :: T0 = 273.16
+    real, parameter :: cliq = -80. 
+    real a0,a1,a2,a3,a4,a5,a6,a7,a8
+    data a0,a1,a2,a3,a4,a5,a6,a7,a8 /&
+       6.11239921, 0.443987641, 0.142986287e-1, &
+       0.264847430e-3, 0.302950461e-5, 0.206739458e-7, &
+       0.640689451e-10, -0.952447341e-13,-0.976195544e-15/
+    real :: dt
+    dt = max(cliq,T-T0)
+    tom_eliq = 100.*(a0 + dt*(a1+dt*(a2+dt*(a3+dt*(a4+dt*(a5+dt*(a6+dt*(a7+a8*dt))))))))  
+  end 
+
+
+  real function tom_eice(T)
+    implicit none
+    real T
+    real, parameter :: T0 = 273.16
+    real a0,a1,a2,a3,a4,a5,a6,a7,a8
+    data a0,a1,a2,a3,a4,a5,a6,a7,a8 /&
+        6.11147274, 0.503160820, 0.188439774e-1, &
+        0.420895665e-3, 0.615021634e-5,0.602588177e-7, &
+        0.385852041e-9, 0.146898966e-11, 0.252751365e-14/       
+    real cice(6)
+    real dt
+    dt = T-T0
+    cice(1) = 273.15
+    cice(2) = 185.
+    cice(3) = -100.
+    cice(4) = 0.00763685
+    cice(5) = 0.000151069
+    cice(6) = 7.48215e-07
+    if (T .gt. cice(1)) then
+      tom_eice = tom_eliq(T)
+    else if (T .le. cice(2)) then
+      tom_eice = 100.*(cice(4) + max(cice(2),dt)*(cice(5)+max(cice(3),dt)*cice(6))) 
+    else
+      tom_eice = 100.*(a0 +dt*(a1+dt*(a2+dt*(a3+dt*(a4+dt*(a5+dt*(a6+dt*(a7+a8*dt))))))))
+    end if
+  end      
 
 end module cloudbrain
 #endif
