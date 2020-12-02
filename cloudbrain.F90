@@ -197,14 +197,26 @@ end subroutine neural_net
   subroutine init_neural_net()
 
     implicit none
-
-    call cloudbrain_net % load('/scratch/07064/tg863631/fortran_models/BF_RG_config.txt')
+    
+    if (input_rh) then
+      call cloudbrain_net % load('/scratch/07064/tg863631/fortran_models/RH_RGV1_config.txt')
+    else
+      call cloudbrain_net % load('/scratch/07064/tg863631/fortran_models/BF_RG_config.txt')
+    end if
     write (iulog,*) '------- FKB: loaded network from txt file -------'
     
-    open (unit=555,file='/scratch/07064/tg863631/frontera_data/data/inp_sub.txt',status='old',action='read')
+    if (input_rh) then
+      open (unit=555,file='/scratch/07064/tg863631/frontera_data/data/inp_sub_RH.txt',status='old',action='read')
+    else
+      open (unit=555,file='/scratch/07064/tg863631/frontera_data/data/inp_sub.txt',status='old',action='read')
+    end if
     read(555,*) inp_sub(:)
     
-    open (unit=555,file='/scratch/07064/tg863631/frontera_data/data/inp_div.txt',status='old',action='read')
+    if (input_rh) then
+      open (unit=555,file='/scratch/07064/tg863631/frontera_data/data/inp_div_RH.txt',status='old',action='read')
+    else
+      open (unit=555,file='/scratch/07064/tg863631/frontera_data/data/inp_div.txt',status='old',action='read')
+    end if
     read(555,*) inp_div(:)
     
     open (unit=555,file='/scratch/07064/tg863631/frontera_data/data/scale_dict_output.txt',status='old',action='read')
