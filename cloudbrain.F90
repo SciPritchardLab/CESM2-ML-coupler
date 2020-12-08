@@ -55,7 +55,7 @@ use mod_ensemble, only: ensemble_type
     ! local variables
    real :: input(pcols,inputlength)
    real :: output(pcols,outputlength)
-   integer :: i,k,ncol,ixcldice,ixcldliq,ii,kk
+   integer :: i,k,ncol,ixcldice,ixcldliq,ii,kk,klev_crmtop
    real (r8) :: s_bctend(pcols,pver), q_bctend(pcols,pver), qc_bctend(pcols,pver), qi_bctend(pcols,pver), qafter, safter
    logical :: doconstraints
    logical ::  lq(pcnst)
@@ -154,10 +154,26 @@ use mod_ensemble, only: ensemble_type
    qc_bctend(:ncol,:pver) = real(output(:ncol,(2*pver+1):(3*pver)),r8) ! kg/kg/s 
    qi_bctend(:ncol,:pver) = real(output(:ncol,(3*pver+1):(4*pver)),r8) ! kg/kg/s 
 
+! deny any moisture activity in the stratosphere:
+   do i=1,ncol
+     call detect_tropopause(state%t(i,:),state%exner(i,:),state%zm(i,:),state%pmid(i,:),klev_crmtop)
+     q_bctend(i,1:klev_crmtop) = 0.
+     qc_bctend(i,1:klev_crmtop) = 0.
+     qi_bctend(i,1:klev_crmtop) = 0.
+   end do
 ! -- atmos positivity constraints ---- 
    if (doconstraints) then
    do i=1,ncol
      do k=1,pver
+! deny activity in the ice phase where it is above freezing.
+       if (state%t(i,k) .gt. 273.16) then
+          qi_bctend(i,k) = 0.
+! deny activitiy in the water phase where it is below freezing.
+       elseif (state%t(i,k) .lt. 253.16) then
+          qc_bctend(i,k) = 0.
+       end if
+!eliminate all activity in the water phase on top 10 levels:
+
 ! energy positivity:
        safter = state%s(i,k) + s_bctend(i,k)*ztodt ! predicted DSE after NN tendency
        if (safter .lt. 0.) then ! can only happen when bctend < 0...
@@ -170,6 +186,8 @@ use mod_ensemble, only: ensemble_type
        if (qafter .lt. 0.) then ! can only happen when qbctend < 0...
          q_bctend(i,k) = q_bctend(i,k) + abs(qafter)/ztodt ! in which case reduce drying rate
        endif
+
+
  ! liquid positivity:
        qafter = state%q(i,k,ixcldliq) + qc_bctend(i,k)*ztodt ! predicted liquid after NN tendency
        if (qafter .lt. 0.) then ! can only happen when qbctend < 0...
@@ -294,6 +312,28 @@ end subroutine neural_net
       tom_eice = 100.*(a0 +dt*(a1+dt*(a2+dt*(a3+dt*(a4+dt*(a5+dt*(a6+dt*(a7+a8*dt))))))))
     end if
   end      
+
+
+ subroutine detect_tropopause (t,exner,zmid,pmid,klev_crmtop)
+   real(r8), intent(in) :: t(pver),exner(pver),zmid(pver),pmid(pver)
+   integer, intent(out) :: klev_crmtop
+   integer :: k
+   real (r8) :: theta(pver),dthetadz
+
+   do k=1,pver
+     theta(k) = t(k)*exner(k)
+   end do
+
+   klev_crmtop = 1
+
+   do k=2,pver-1
+     dthetadz = (theta(k-1)-theta(k+1))/(zmid(k-1)-zmid(k+1))*1000. ! K/km
+     ! assume theta in K and pmid in Pa then
+     if (pmid(k) .le. 40000. .and. dthetadz > 10.) then
+       klev_crmtop = k
+     endif
+   end do
+  end subroutine detect_tropopause
 
 end module cloudbrain
 #endif
