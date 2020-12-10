@@ -26,7 +26,8 @@ use mod_ensemble, only: ensemble_type
 
   private
   ! Define variables for this entire module
-  integer, parameter :: inputlength = 108 ! 26*4 + 4 scalars
+  !integer, parameter :: inputlength = 108 ! 26*4 + 4 scalars
+  integer, parameter :: inputlength = 76 ! 18*4 + 4 scalars (8 top inputs trimmed)
 !  integer, parameter :: outputlength = 112 ! 26*4 + 8 scalars
   integer, parameter :: outputlength = 111 ! 26*4 + 7 scalars (error, Ankitesh forgot one of the NN2L outputs)
   logical, parameter :: input_rh = .true. ! toggle to switch from q --> RH input
@@ -60,6 +61,10 @@ use mod_ensemble, only: ensemble_type
    logical :: doconstraints
    logical ::  lq(pcnst)
    real :: rh_loc
+   integer :: pvert,ntrim
+   ntrim = 8
+   pvert = pver-ntrim ! after trimming.
+
    ncol  = state%ncol
    call cnst_get_ind('CLDLIQ', ixcldliq)
    call cnst_get_ind('CLDICE', ixcldice)
@@ -79,7 +84,7 @@ use mod_ensemble, only: ensemble_type
   ! Ankitesh says on Slack that ['QBP','TBP','CLDLIQBP','CLDICEBP','PS', 'SOLIN', 'SHFLX', 'LHFLX']
     if (input_rh) then
        do i = 1,ncol
-         do k=1,pver
+         do k=ntrim+1,pver
            ! Port of tom's RH =  Rv*p*qv/(R*esat(T))
            rh_loc = 461.*state%pmid(i,k)*state%q(i,k,1)/(287.*tom_esat(real(state%t(i,k)))) ! note function tom_esat below refercing SAM's sat.F90
 #ifdef RHDEBUG
@@ -87,19 +92,23 @@ use mod_ensemble, only: ensemble_type
              write (iulog,*) 'RHDEBUG:p,q,T,RH=',state%pmid(i,k),state%q(i,k,1),state%t(i,k),rh_loc
            endif
 #endif
-           input(i,k) = rh_loc
+           input(i,k-ntrim) = rh_loc
          end do
        end do
     else
-      input(:ncol,1:pver) = state%q(:ncol,:pver,1) ! specific humidity input
+      do i=1,ncol 
+        do k=ntrim+1,pver
+          input(i,k-ntrim) = state%q(i,k,1) ! specific humidity input
+        end do
+      end do
     endif
-    input(:ncol,(pver+1):(2*pver)) = state%t(:ncol,:pver)
-    input(:ncol,(2*pver+1):(3*pver)) = state%q(:ncol,:pver,ixcldliq)
-    input(:ncol,(3*pver+1):(4*pver)) = state%q(:ncol,:pver,ixcldice)
-    input(:ncol,(4*pver+1)) = state%ps(:ncol)
-    input(:ncol,(4*pver+2)) = nn_solin(:ncol) ! WARNING this is being lazily mined from part of SP solution... should be avoidable in future when bypassing SP totally but will take work.
-    input(:ncol,(4*pver+3)) = cam_in%shf(:ncol)
-    input(:ncol,(4*pver+4)) = cam_in%lhf(:ncol) 
+    input(:ncol,(pvert+1):(2*pvert)) = state%t(:ncol,(ntrim+1):pver)
+    input(:ncol,(2*pvert+1):(3*pvert)) = state%q(:ncol,(ntrim+1):pver,ixcldliq)
+    input(:ncol,(3*pvert+1):(4*pvert)) = state%q(:ncol,(ntrim+1):pver,ixcldice)
+    input(:ncol,(4*pvert+1)) = state%ps(:ncol)
+    input(:ncol,(4*pvert+2)) = nn_solin(:ncol) ! WARNING this is being lazily mined from part of SP solution... should be avoidable in future when bypassing SP totally but will take work.
+    input(:ncol,(4*pvert+3)) = cam_in%shf(:ncol)
+    input(:ncol,(4*pvert+4)) = cam_in%lhf(:ncol) 
  
 
 #ifdef BRAINDEBUG
@@ -215,23 +224,26 @@ end subroutine neural_net
   subroutine init_neural_net()
 
     implicit none
-    
+
     if (input_rh) then
-      call cloudbrain_net % load('/scratch/07064/tg863631/fortran_models/RH_RGV1_config.txt')
+!      call cloudbrain_net % load('/scratch/07064/tg863631/fortran_models/RH_RGV1_config.txt')
+      call cloudbrain_net %load('/scratch/07064/tg863631/fortran_models/RH_RG_TrimTunedV1_config.txt')
     else
-      call cloudbrain_net % load('/scratch/07064/tg863631/fortran_models/BF_RG_config.txt')
+!      call cloudbrain_net % load('/scratch/07064/tg863631/fortran_models/RH_RG_TrimTunedV1_config.txt')
     end if
     write (iulog,*) '------- FKB: loaded network from txt file -------'
     
     if (input_rh) then
-      open (unit=555,file='/scratch/07064/tg863631/frontera_data/data/inp_sub_RH.txt',status='old',action='read')
+!      open (unit=555,file='/scratch/07064/tg863631/frontera_data/data/inp_sub_RH.txt',status='old',action='read')
+      open (unit=555,file='/scratch/07064/tg863631/frontera_data/data/inp_sub_RH_trim.txt',status='old',action='read')
     else
       open (unit=555,file='/scratch/07064/tg863631/frontera_data/data/inp_sub.txt',status='old',action='read')
     end if
     read(555,*) inp_sub(:)
     
     if (input_rh) then
-      open (unit=555,file='/scratch/07064/tg863631/frontera_data/data/inp_div_RH.txt',status='old',action='read')
+!      open (unit=555,file='/scratch/07064/tg863631/frontera_data/data/inp_div_RH.txt',status='old',action='read')
+      open (unit=555,file='/scratch/07064/tg863631/frontera_data/data/inp_div_RH_trim.txt',status='old',action='read')
     else
       open (unit=555,file='/scratch/07064/tg863631/frontera_data/data/inp_div.txt',status='old',action='read')
     end if
