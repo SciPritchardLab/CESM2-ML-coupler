@@ -229,8 +229,6 @@ end subroutine neural_net
 
     implicit none
 
-    namelist /cbrain_nl/ prescribed_cloudbrain_net
-
     if (input_rh) then
 !      call cloudbrain_net % load('/scratch/07064/tg863631/fortran_models/RH_RGV1_config.txt')
 !      call cloudbrain_net %load('/scratch/07064/tg863631/fortran_models/RH_RG_TrimTunedV1_config.txt')
@@ -353,6 +351,42 @@ end subroutine neural_net
      endif
    end do
   end subroutine detect_tropopause
+
+   ! Read namelist variables.
+  subroutine cbrain_readnl(nlfile)
+
+      use namelist_utils,  only: find_group_name
+      use units,           only: getunit, freeunit
+      use mpishorthand
+
+      character(len=*), intent(in) :: nlfile  ! filepath for file containing namelist input
+
+      ! Local variables
+      integer :: unitn, ierr
+      character(len=*), parameter :: subname = 'cbrain_readnl'
+      
+      namelist /cbrain_nl/ prescribed_cloudbrain_net
+      !-----------------------------------------------------------------------------
+
+      if (masterproc) then
+         unitn = getunit()
+         open( unitn, file=trim(nlfile), status='old' )
+         call find_group_name(unitn, 'cbrain_nl', status=ierr)
+         if (ierr == 0) then
+            read(unitn, cbrain_nl, iostat=ierr)
+            if (ierr /= 0) then
+               call endrun(subname // ':: ERROR reading namelist')
+            end if
+         end if
+         close(unitn)
+         call freeunit(unitn)
+      end if
+#ifdef SPMD
+      ! Broadcast namelist variables
+      call mpibcast(prescribed_cloudbrain_net, len(prescribed_cloudbrain_net), mpichar,0, mpicom)
+#endif
+
+   end subroutine cbrain_readnl
 
 end module cloudbrain
 #endif
