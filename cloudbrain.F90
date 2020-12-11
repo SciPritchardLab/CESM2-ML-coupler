@@ -32,6 +32,10 @@ use mod_ensemble, only: ensemble_type
   integer, parameter :: outputlength = 111 ! 26*4 + 7 scalars (error, Ankitesh forgot one of the NN2L outputs)
   logical, parameter :: input_rh = .true. ! toggle to switch from q --> RH input
 
+  ! Namelist variables
+  character(len=256)    :: prescribed_cloudbrain_net = 'RH_RG_TrimTunedV1_config'      ! absolute filepath of RH_RG_TrimTunedV1_config
+
+
   type(network_type) :: cloudbrain_net
 
   real :: inp_sub(inputlength)
@@ -225,9 +229,12 @@ end subroutine neural_net
 
     implicit none
 
+    namelist /cbrain_nl/ prescribed_cloudbrain_net
+
     if (input_rh) then
 !      call cloudbrain_net % load('/scratch/07064/tg863631/fortran_models/RH_RGV1_config.txt')
-      call cloudbrain_net %load('/scratch/07064/tg863631/fortran_models/RH_RG_TrimTunedV1_config.txt')
+!      call cloudbrain_net %load('/scratch/07064/tg863631/fortran_models/RH_RG_TrimTunedV1_config.txt')
+      call cloudbrain_net %load(prescribed_cloudbrain_net)
     else
 !      call cloudbrain_net % load('/scratch/07064/tg863631/fortran_models/RH_RG_TrimTunedV1_config.txt')
     end if
