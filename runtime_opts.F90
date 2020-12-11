@@ -94,6 +94,7 @@ subroutine read_namelist(nlfilename, single_column, scmlat, scmlon)
    use dyn_comp,            only: dyn_readnl
    use ionosphere_interface,only: ionosphere_readnl
    use qneg_module,         only: qneg_readnl
+   use cloudbrain,          only: cbrain_readnl
 
    !---------------------------Arguments-----------------------------------
 
