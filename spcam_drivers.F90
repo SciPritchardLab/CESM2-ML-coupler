@@ -17,7 +17,7 @@ use phys_grid,        only: get_rlat_all_p, get_rlon_all_p
 use cam_history,      only: outfld
 use cam_history_support, only : fillvalue
 #ifdef CBRAIN
-use time_manager,    only: is_first_step,  is_first_restart_step
+use time_manager,    only: is_first_step,  is_first_restart_step, get_step_size
 #endif
 
 implicit none
@@ -265,6 +265,10 @@ integer           :: nmodes
 logical           :: is_spcam_m2005, is_spcam_sam1mom
 logical           :: prog_modal_aero
 
+#ifdef CBRAIN
+integer :: nstep0
+#endif
+
 contains
 subroutine tphysbc_spcam (ztodt, state,   &
        tend,    pbuf,                     &
@@ -298,9 +302,10 @@ subroutine tphysbc_spcam (ztodt, state,   &
 
     use physics_buffer,  only : pbuf_old_tim_idx, dyn_time_lvls
     use physics_types,   only: physics_state, physics_tend, physics_ptend, physics_update, &
-         physics_state_check
+                               physics_state_check
     use dadadj_cam,      only: dadadj_tend
-    use cam_diagnostics, only: diag_state_b4_coupling,diag_conv_tend_ini, diag_phys_writeout, diag_conv, diag_export, diag_state_b4_phys_write
+    use cam_diagnostics, only: diag_state_b4_coupling,diag_conv_tend_ini, diag_phys_writeout, diag_conv, diag_export,&
+                               diag_state_b4_phys_write, diag_braindebug
     use cam_history,     only: outfld
     use constituents,    only: pcnst, qmin, cnst_get_ind
     use time_manager,    only: get_nstep
@@ -317,8 +322,9 @@ subroutine tphysbc_spcam (ztodt, state,   &
     use crm_physics,     only: crm_physics_tend
     use spmd_utils,       only: masterproc
 #ifdef CBRAIN    
-    use cloudbrain, only : neural_net, init_neural_net
-   use physconst,       only: cpair
+    use cloudbrain,      only : neural_net, init_neural_net
+    use physconst,       only: cpair
+    use cam_logfile,     only: iulog
 #endif    
 #endif
     use phys_control,    only: phys_getopts
@@ -348,6 +354,13 @@ subroutine tphysbc_spcam (ztodt, state,   &
     real (r8) :: nn_solin(pcols)
     real (r8) :: ftem3 (pcols,pver)
 #endif
+
+#ifdef CBRAINDIAG
+    type(physics_state) :: state_save_sp
+    type(physics_tend ) :: tend_save_sp
+    type(cam_out_t)     :: cam_out_save_sp
+#endif
+
     !
     !---------------------------Local workspace-----------------------------
     !
@@ -397,6 +410,8 @@ subroutine tphysbc_spcam (ztodt, state,   &
 
     integer :: teout_idx, qini_idx, cldliqini_idx, cldiceini_idx
     integer :: ii, jj
+
+    integer :: nstep_NN
     !-----------------------------------------------------------------------
     call t_startf('bc_init')
     zero = 0._r8
@@ -450,6 +465,10 @@ subroutine tphysbc_spcam (ztodt, state,   &
     state_save = state
     tend_save = tend
 #endif
+#ifdef CBRAINDIAG
+    call diag_braindebug(state, cam_out, 0) ! 0 for 'before physics'
+#endif
+
     ! compute mass integrals of input tracers state
     call check_tracers_init(state, tracerint)
 
@@ -588,18 +607,41 @@ subroutine tphysbc_spcam (ztodt, state,   &
 
     call t_stopf('radiation')
 
-    ! Diagnose the location of the tropopause and its location to the history file(s).
-    call t_startf('tropopause')
-    call tropopause_output(state)
-    call t_stopf('tropopause')
+    ! sungduk: the following dignostic call need to be moved after the NN call,
+    !          so that the diagnostics are based on NN calculations, not SP.
+    !
+    ! ! Diagnose the location of the tropopause and its location to the history file(s).
+    ! call t_startf('tropopause')
+    ! call tropopause_output(state)
+    ! call t_stopf('tropopause')
 
-!if (masterproc) write(iulog,*) 'Liran Test HERE!!!!'
-    call diag_state_b4_coupling (state) ! pritch & beucler (contains SP tendency impacts).
+    ! ! Save atmospheric fields to force surface models
+    ! call t_startf('cam_export')
+    ! call cam_export (state,cam_out,pbuf)
+    ! call t_stopf('cam_export')
 
-    ! Save atmospheric fields to force surface models
-    call t_startf('cam_export')
+#ifdef CBRAINDIAG
+    ! cam_out is called here for diag_braindebug
+    ! so that cam_out%prec* variables are updated before diag_braindebug
     call cam_export (state,cam_out,pbuf)
-    call t_stopf('cam_export')
+    call diag_braindebug(state, cam_out, 1) ! 1 for SP
+
+    ! save SP calculation
+    state_save_sp   = state
+    tend_save_sp    = tend
+    cam_out_save_sp = cam_out ! save cam_out so that cam_export won't be called again
+#endif
+
+    call diag_state_b4_coupling (state) ! pritch & beucler (contains SP tendency impacts).
+                                        !
+                                        ! sungduk: why printing out b4c
+                                        ! variables here? These rad cnsts are redisributed
+                                        ! by SP. This potentially introduce
+                                        ! inconsitency, since CRM is forced by
+                                        ! qrl+qrs calculated from the previous
+                                        ! time step.
+                                        ! (is this just for saving variables for NN
+                                        ! training?)
 
 #ifdef CBRAIN
 ! =============================== NEURAL NETWORK SUBSUMES TPHYSBC HERE =========================
@@ -607,7 +649,15 @@ subroutine tphysbc_spcam (ztodt, state,   &
 
 if (is_first_step() .or. is_first_restart_step()) then
     call init_neural_net() ! TODO isolate to first time step.
-else
+    nstep0 = nstep
+endif
+
+nstep_NN = 86400 / get_step_size()
+if (nstep-nstep0 .ge. nstep_NN) then ! allow coupling after 1 day
+    if (nstep-nstep0 .eq. nstep_NN) then
+       write (iulog,*) 'CLOUDBRAIN: NN is coupled at nstep = ', nstep
+    endif
+
     ! Save off control tendencies under standard SP before forgetting them:
     ftem3(:ncol,:pver) = state%q(:ncol,:pver,1) - state_save%q(:ncol,:pver,1)
     call outfld ('SP_BP2BC_DQ',ftem3,pcols,lchnk)
@@ -618,12 +668,15 @@ else
     ftem3(:ncol,:pver) = state%q(:ncol,:pver,ixcldice) - state_save%q(:ncol,:pver,ixcldice)
     call outfld ('SP_BP2BC_DQI',ftem3,pcols,lchnk)
 
+    ! SY: calculate solin
+    ! call cloudbrain_solin(state, nn_solin)
+
     ! Override what standard SP & explicit physics had done...
     state = state_save
     tend = tend_save
 
     ! ...Replace with the NN answer:
-    call neural_net (state,nn_solin,cam_in,ztodt,ptend,cam_out) ! returns ptend and cam_out
+    call neural_net (state,nn_solin,cam_in,ztodt,ptend,cam_out,pbuf) ! returns ptend and cam_out
     call physics_update (state, ptend, ztodt, tend)
 
     ! Self-consistent NN increments for diagnosis vs. SP
@@ -637,6 +690,26 @@ else
     call outfld ('NN_BP2BC_DQI',ftem3,pcols,lchnk)
 endif
 #endif
+
+    ! Save atmospheric fields to force surface models
+    call t_startf('cam_export')
+    call cam_export (state,cam_out,pbuf)
+    call t_stopf('cam_export')
+
+#ifdef CBRAINDIAG
+    call diag_braindebug(state, cam_out, 2) ! 2 for NN
+
+    ! restore state, tend, cam_out to SP calculation
+    state   = state_save_sp 
+    tend    = tend_save_sp
+    cam_out = cam_out_save_sp
+#endif
+
+    ! Diagnose the location of the tropopause and its location to the history
+    ! file(s).
+    call t_startf('tropopause')
+    call tropopause_output(state)
+    call t_stopf('tropopause')
 
     ! Write export state to history file
     call t_startf('diag_export')

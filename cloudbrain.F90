@@ -2,7 +2,10 @@
 #ifdef CBRAIN
 #define BRAINDEBUG
 !#define RHDEBUG
+!#define CBRAIN_OCN_ONLY
+
 module cloudbrain
+
 use constituents,    only: pcnst
 use shr_kind_mod,    only: r8 => shr_kind_r8
 use ppgrid,          only: pcols, pver, pverp
@@ -13,6 +16,7 @@ use camsrfexch,       only: cam_out_t, cam_in_t
 use constituents,    only: cnst_get_ind
 use physics_types,    only: physics_state,  physics_ptend, physics_ptend_init
 use cam_logfile,       only: iulog
+use physics_buffer,   only: physics_buffer_desc, pbuf_get_field, pbuf_get_index
 
 ! -------- NEURAL-FORTRAN --------
 ! imports
@@ -26,26 +30,28 @@ use mod_ensemble, only: ensemble_type
 
   private
   ! Define variables for this entire module
-  !integer, parameter :: inputlength = 108 ! 26*4 + 4 scalars
-  integer, parameter :: inputlength = 76 ! 18*4 + 4 scalars (8 top inputs trimmed)
-!  integer, parameter :: outputlength = 112 ! 26*4 + 8 scalars
-  integer, parameter :: outputlength = 111 ! 26*4 + 7 scalars (error, Ankitesh forgot one of the NN2L outputs)
-  logical, parameter :: input_rh = .true. ! toggle to switch from q --> RH input
-
-  ! Namelist variables
-  character(len=256)    :: prescribed_cloudbrain_net = 'RH_RG_TrimTunedV1_config'      ! absolute filepath of RH_RG_TrimTunedV1_config
+  ! These are nameliest variables.
+  ! If not specified in atm_in, the following defaults values are used.
+  integer :: inputlength  = 109     ! length of NN input vector
+  integer :: outputlength = 112     ! length of NN output vector
+  logical :: input_rh     = .true.  ! toggle to switch from q --> RH input
+  character(len=256)    :: cb_fkb_model   ! absolute filepath for a fkb model txt file
+  character(len=256)    :: cb_inp_sub     ! absolute filepath for a inp_sub.txt
+  character(len=256)    :: cb_inp_div     ! absolute filepath for a inp_div.txt
+  character(len=256)    :: cb_out_scale   ! absolute filepath for a out_scale.txt
 
 
   type(network_type) :: cloudbrain_net
 
-  real :: inp_sub(inputlength)
-  real :: inp_div(inputlength)
-  real :: out_weight(outputlength)
+  real(r8), allocatable :: inp_sub(:)
+  real(r8), allocatable :: inp_div(:)
+  real(r8), allocatable :: out_scale(:)
 
-  public neural_net, init_neural_net
-  contains
+  public neural_net, init_neural_net, cbrain_readnl
+  
+contains
 
-  subroutine neural_net (state,nn_solin,cam_in,ztodt,ptend,cam_out)
+  subroutine neural_net (state,nn_solin,cam_in,ztodt,ptend,cam_out,pbuf)
  ! note state is meant to have the "BP" state saved earlier. 
 
    implicit none
@@ -54,19 +60,25 @@ use mod_ensemble, only: ensemble_type
    real(r8), intent(in)               :: nn_solin(pcols) 
    type(cam_in_t),intent(in)          :: cam_in
    real(r8), intent(in) :: ztodt 
-   type(physics_ptend),intent(out) :: ptend            ! indivdual parameterization tendencies
-   type(cam_out_t),     intent(out) :: cam_out
+   type(physics_ptend),intent(out)    :: ptend            ! indivdual parameterization tendencies
+   type(cam_out_t),     intent(inout) :: cam_out  ! SY: changed to inout to use variables from a previous time step (e.g., PRECT)
+   type(physics_buffer_desc), pointer  :: pbuf(:) ! SY: for precip variables.
 
     ! local variables
-   real :: input(pcols,inputlength)
-   real :: output(pcols,outputlength)
+   real(r8) :: input(pcols,inputlength)
+   real(r8) :: output(pcols,outputlength)
    integer :: i,k,ncol,ixcldice,ixcldliq,ii,kk,klev_crmtop
    real (r8) :: s_bctend(pcols,pver), q_bctend(pcols,pver), qc_bctend(pcols,pver), qi_bctend(pcols,pver), qafter, safter
    logical :: doconstraints
    logical ::  lq(pcnst)
-   real :: rh_loc
+   real(r8) :: rh_loc
    integer :: pvert,ntrim
-   ntrim = 8
+   integer :: prec_dp_idx, snow_dp_idx
+   ! convective precipitation variables
+   real(r8), pointer :: prec_dp(:)                ! total precip rate [m/s]
+   real(r8), pointer :: snow_dp(:)                ! snow precip rate [m/s]
+
+   ntrim = 0 !sungduk: cam_nz=26, crm_nz=24, However, NN input variable has nz=26.
    pvert = pver-ntrim ! after trimming.
 
    ncol  = state%ncol
@@ -86,11 +98,13 @@ use mod_ensemble, only: ensemble_type
    qi_bctend(:,:) = 0.
  
   ! Ankitesh says on Slack that ['QBP','TBP','CLDLIQBP','CLDICEBP','PS', 'SOLIN', 'SHFLX', 'LHFLX']
+  ! Gunnar's ANN (2022DEC)
+  ! INPUT: ['QBP', 'TBP','PS', 'SOLIN', 'SHFLX','LHFLX','PRECTt-dt','CLDLIQBP','CLDICEBP']
     if (input_rh) then
        do i = 1,ncol
          do k=ntrim+1,pver
            ! Port of tom's RH =  Rv*p*qv/(R*esat(T))
-           rh_loc = 461.*state%pmid(i,k)*state%q(i,k,1)/(287.*tom_esat(real(state%t(i,k)))) ! note function tom_esat below refercing SAM's sat.F90
+           rh_loc = 461.*state%pmid(i,k)*state%q(i,k,1)/(287.*tom_esat(state%t(i,k))) ! note function tom_esat below refercing SAM's sat.F90
 #ifdef RHDEBUG
            if (masterproc) then
              write (iulog,*) 'RHDEBUG:p,q,T,RH=',state%pmid(i,k),state%q(i,k,1),state%t(i,k),rh_loc
@@ -106,14 +120,30 @@ use mod_ensemble, only: ensemble_type
         end do
       end do
     endif
-    input(:ncol,(pvert+1):(2*pvert)) = state%t(:ncol,(ntrim+1):pver)
-    input(:ncol,(2*pvert+1):(3*pvert)) = state%q(:ncol,(ntrim+1):pver,ixcldliq)
-    input(:ncol,(3*pvert+1):(4*pvert)) = state%q(:ncol,(ntrim+1):pver,ixcldice)
-    input(:ncol,(4*pvert+1)) = state%ps(:ncol)
-    input(:ncol,(4*pvert+2)) = nn_solin(:ncol) ! WARNING this is being lazily mined from part of SP solution... should be avoidable in future when bypassing SP totally but will take work.
-    input(:ncol,(4*pvert+3)) = cam_in%shf(:ncol)
-    input(:ncol,(4*pvert+4)) = cam_in%lhf(:ncol) 
- 
+    input(:ncol,(pvert+1):(2*pvert))     = state%t(:ncol,(ntrim+1):pver) ! TBP
+    input(:ncol,(2*pvert+1))             = state%ps(:ncol) ! PS
+    input(:ncol,(2*pvert+2))             = nn_solin(:ncol) ! SOLIN / WARNING this is being lazily mined from part of SP solution... should be avoidable in future when bypassing SP totally but will take work.
+    input(:ncol,(2*pvert+3))             = cam_in%shf(:ncol) ! SHFLX
+    input(:ncol,(2*pvert+4))             = cam_in%lhf(:ncol) ! LHFLX
+    input(:ncol,(2*pvert+5))             = cam_out%precc(:ncol)  + cam_out%precl(:ncol) ! PRECTt-dt
+    input(:ncol,(2*pvert+6):(3*pvert+5)) = state%q(:ncol,(ntrim+1):pver,ixcldliq) ! CLDLIQBP
+    input(:ncol,(3*pvert+6):(4*pvert+5)) = state%q(:ncol,(ntrim+1):pver,ixcldice) ! CLDICEBP
+
+
+! Tue Jan 24 13:28:43 CST 2023
+! Sungduk 
+#ifdef BRAINDEBUG
+      if (masterproc) then
+        write (iulog,*) 'BRAINDEBUG TBP=',state%t(1,(ntrim+1):pver)
+        write (iulog,*) 'BRAINDEBUG PS=',state%ps(1)
+        write (iulog,*) 'BRAINDEBUG SOLIN=',nn_solin(1)
+        write (iulog,*) 'BRAINDEBUG SHFLX=',cam_in%shf(1)
+        write (iulog,*) 'BRAINDEBUG LHFLX=',cam_in%lhf(1)
+        write (iulog,*) 'BRAINDEBUG PRECTm1=',cam_out%precc(1) + cam_out%precl(1)
+        write (iulog,*) 'BRAINDEBUG CLDLIQBP=', state%q(1,(ntrim+1):pver,ixcldliq)
+        write (iulog,*) 'BRAINDEBUG CLDICEBP=', state%q(1,(ntrim+1):pver,ixcldice)
+      endif
+#endif# 
 
 #ifdef BRAINDEBUG
       if (masterproc) then
@@ -134,38 +164,49 @@ use mod_ensemble, only: ensemble_type
     do i=1,ncol
       output(i,:) = cloudbrain_net % output(input(i,:))
     end do
-
 #ifdef BRAINDEBUG
       if (masterproc) then
         write (iulog,*) 'BRAINDEBUG output = ',output(1,:)
       endif
 #endif
-   ! output normalization (un-weighting, really).
-   do i=1,ncol
-     do k=1,outputlength
-      output(i,k) = output(i,k) / out_weight(k)
-     end do
-   end do
 
+   ! Manually applying ReLU activation for positive-definite variables
+   do i=1,ncol
+     do k=4*pvert+1,4*pvert+8
+       output(i,k) = max(output(i,k), 0.)
+     end do
+     k=4*pvert+3
+     output(i,k) = max(output(i,k), tiny(output(i,k))) ! flwds
+                                                       ! preventing flwds==0 error
+   end do
 #ifdef BRAINDEBUG
       if (masterproc) then
-        write (iulog,*) 'BRAINDEBUG out post scale = ',output(1,:)
+        write (iulog,*) 'BRAINDEBUG output after ReLU = ',output(1,:)
       endif
 #endif
 
-! ['QBCTEND','TBCTEND','CLDLIQBCTEND', 'CLDICEBCTEND', 'NN2L_FLWDS',
-! 'NN2L_PRECC', 'NN2L_PRECSC', 'NN2L_SOLL', 'NN2L_SOLLD', 'NN2L_SOLS',
-! 'NN2L_SOLSD', 'NN2L_NETSW'] 
+   ! output normalization (un-weighting, really).
+   do i=1,ncol
+     do k=1,outputlength
+      output(i,k) = output(i,k) / out_scale(k)
+     end do
+   end do
+#ifdef BRAINDEBUG
+      if (masterproc) then
+        write (iulog,*) 'BRAINDEBUG output post scale = ',output(1,:)
+      endif
+#endif
 
-! Thus total NN output vector length is:
-! 4*pver + 8 = 4*26 +8 = 112
+! OUTPUT:
+! ['QBCTEND','TBCTEND','CLDLIQBCTEND','CLDICEBCTEND','PREC_CRM_SNOW','PREC_CRM','NN2L_FLWDS','NN2L_DOWN_SW','NN2L_SOLL','NN2L_SOLLD','NN2L_SOLS','NN2L_SOLSD']
 
 ! ---------- 1. NN output to atmosphere forcing --------
-
-   q_bctend(:ncol,:pver) = real(output(:ncol,1:pver),r8) ! kg/kg/s 
-   s_bctend(:ncol,1:pver) = cpair*real(output(:ncol,(pver+1):(2*pver)),r8) ! K/s --> J/kg/s (ptend expects that)
-   qc_bctend(:ncol,:pver) = real(output(:ncol,(2*pver+1):(3*pver)),r8) ! kg/kg/s 
-   qi_bctend(:ncol,:pver) = real(output(:ncol,(3*pver+1):(4*pver)),r8) ! kg/kg/s 
+! ['QBCTEND','TBCTEND','CLDLIQBCTEND','CLDICEBCTEND']
+! ! don't use CRM tendencies from two crm top levels
+   q_bctend (:ncol,ntrim+1:pver) = output(:ncol,1:pvert) ! kg/kg/s 
+   s_bctend (:ncol,ntrim+1:pver) = output(:ncol,(pvert+1)  :(2*pvert))*cpair ! K/s --> J/kg/s (ptend expects that)
+   qc_bctend(:ncol,ntrim+1:pver) = output(:ncol,(2*pvert+1):(3*pvert)) ! kg/kg/s 
+   qi_bctend(:ncol,ntrim+1:pver) = output(:ncol,(3*pvert+1):(4*pvert)) ! kg/kg/s 
 
 ! deny any moisture activity in the stratosphere:
    do i=1,ncol
@@ -220,8 +261,51 @@ use mod_ensemble, only: ensemble_type
     ptend%q(:ncol,:pver,ixcldliq) = qc_bctend(:ncol,:pver)
     ptend%q(:ncol,:pver,ixcldice) = qi_bctend(:ncol,:pver)
 
+
 ! ------------- 2. NN output to land forcing ---------
-! TODO:
+!!! ! ['PRECT','PREC_CRM_SNOW','PREC_CRM','NN2L_FLWDS','NN2L_DOWN_SW','NN2L_SOLL','NN2L_SOLLD','NN2L_SOLS','NN2L_SOLSD']
+!!!    ! These are the cam_out members that are not assigned in cam_export
+!!!    cam_out%flwds = output(:ncol,4*pvert+3)
+!!!    cam_out%netsw = output(:ncol,4*pvert+4)
+!!!    cam_out%soll  = output(:ncol,4*pvert+5)
+!!!    cam_out%solld = output(:ncol,4*pvert+6)
+!!!    cam_out%sols  = output(:ncol,4*pvert+7)
+!!!    cam_out%solsd = output(:ncol,4*pvert+8)
+!!! 
+!!!    ! These are the cam_out members that are assigned in cam_export,
+!!!    ! and so saved to pbuf, instead.
+!!!    ! SY: Note that this uses SPCAM's pbuf register.
+!!!    !     Once, SP is entirely removed, we still need to call crm_physics_register().
+!!!    prec_dp_idx = pbuf_get_index('PREC_DP', errcode=i) ! Query physics buffer index
+!!!    snow_dp_idx = pbuf_get_index('SNOW_DP', errcode=i)
+!!!    call pbuf_get_field(pbuf, prec_dp_idx, prec_dp) ! Associate pointers withphysics buffer fields
+!!!    call pbuf_get_field(pbuf, snow_dp_idx, snow_dp)
+!!!    prec_dp(:ncol) = output(:ncol,4*pvert+2)   ! PREC_CRM
+!!!    snow_dp(:ncol) = output(:ncol,4*pvert+1)   ! PREC_CRM_SNOW
+
+   prec_dp_idx = pbuf_get_index('PREC_DP', errcode=i) ! Query physics buffer index
+   snow_dp_idx = pbuf_get_index('SNOW_DP', errcode=i)
+   call pbuf_get_field(pbuf, prec_dp_idx, prec_dp) ! Associate pointers withphysics buffer fields
+   call pbuf_get_field(pbuf, snow_dp_idx, snow_dp)
+   do i = 1,ncol
+! SY: debugging
+!     allowing surface coupling over ocean only
+#ifdef CBRAIN_OCN_ONLY 
+     if (cam_in%ocnfrac(i) .eq. 1.0_r8) then
+#endif
+       cam_out%flwds(i) = output(i,4*pvert+3)
+       cam_out%netsw(i) = output(i,4*pvert+4)
+       cam_out%soll(i)  = output(i,4*pvert+5)
+       cam_out%solld(i) = output(i,4*pvert+6)
+       cam_out%sols(i)  = output(i,4*pvert+7)
+       cam_out%solsd(i) = output(i,4*pvert+8)
+
+       prec_dp(i) = output(i,4*pvert+2)   ! PREC_CRM
+       snow_dp(i) = output(i,4*pvert+1)   ! PREC_CRM_SNOW
+#ifdef CBRAIN_OCN_ONLY
+     end if
+#endif
+   end do 
 
 end subroutine neural_net
 
@@ -229,52 +313,55 @@ end subroutine neural_net
 
     implicit none
 
-    if (input_rh) then
-!      call cloudbrain_net % load('/scratch/07064/tg863631/fortran_models/RH_RGV1_config.txt')
-!      call cloudbrain_net %load('/scratch/07064/tg863631/fortran_models/RH_RG_TrimTunedV1_config.txt')
-      call cloudbrain_net %load(prescribed_cloudbrain_net)
-    else
-!      call cloudbrain_net % load('/scratch/07064/tg863631/fortran_models/RH_RG_TrimTunedV1_config.txt')
-    end if
-    write (iulog,*) '------- FKB: loaded network from txt file -------'
-    
-    if (input_rh) then
-!      open (unit=555,file='/scratch/07064/tg863631/frontera_data/data/inp_sub_RH.txt',status='old',action='read')
-      open (unit=555,file='/scratch/07064/tg863631/frontera_data/data/inp_sub_RH_trim.txt',status='old',action='read')
-    else
-      open (unit=555,file='/scratch/07064/tg863631/frontera_data/data/inp_sub.txt',status='old',action='read')
-    end if
+    allocate(inp_sub (inputlength))
+    allocate(inp_div (inputlength))
+    allocate(out_scale (outputlength))
+
+    call cloudbrain_net %load(cb_fkb_model)
+    if (masterproc) then
+       write (iulog,*) 'CLOUDBRAIN: loaded network from txt file, ', trim(cb_fkb_model)
+    endif
+
+    open (unit=555,file=cb_inp_sub,status='old',action='read')
     read(555,*) inp_sub(:)
-    
-    if (input_rh) then
-!      open (unit=555,file='/scratch/07064/tg863631/frontera_data/data/inp_div_RH.txt',status='old',action='read')
-      open (unit=555,file='/scratch/07064/tg863631/frontera_data/data/inp_div_RH_trim.txt',status='old',action='read')
-    else
-      open (unit=555,file='/scratch/07064/tg863631/frontera_data/data/inp_div.txt',status='old',action='read')
-    end if
+    close (555)
+    if (masterproc) then
+       write (iulog,*) 'CLOUDBRAIN: loaded inp_sub.txt, ', trim(cb_inp_sub)
+    endif
+
+    open (unit=555,file=cb_inp_div,status='old',action='read')
     read(555,*) inp_div(:)
-    
-    open (unit=555,file='/scratch/07064/tg863631/frontera_data/data/scale_dict_output.txt',status='old',action='read')
-    read(555,*) out_weight(:)
+    close (555)
+    if (masterproc) then
+       write (iulog,*) 'CLOUDBRAIN: loaded inp_div.txt, ', trim(cb_inp_div)
+    endif
+
+    open (unit=555,file=cb_out_scale,status='old',action='read')
+    read(555,*) out_scale(:)
+    close (555)
+    if (masterproc) then
+       write (iulog,*) 'CLOUDBRAIN: loaded out_scale.txt, ', trim(cb_out_scale)
+    endif
+
 #ifdef BRAINDEBUG
     if (masterproc) then
        write (iulog,*) 'BRAINDEBUG read input norm inp_sub=', inp_sub(:)
        write (iulog,*) 'BRAINDEBUG read input norm inp_div=', inp_div(:)       
-       write (iulog,*) 'BRAINDEBUG read output norm out_weight=', out_weight(:)       
+       write (iulog,*) 'BRAINDEBUG read output norm out_scale=', out_scale(:)       
     endif
 #endif
 
   end subroutine init_neural_net
 
-  real function tom_esat(T) 
+  real(r8) function tom_esat(T) 
   ! For consistency with the python port of Tom's RH-calculator, this is how it
   ! was done in the training environment (Caution: could be porting bugs here)
     implicit none
-    real T
-    real, parameter :: T0 = 273.16
-    real, parameter :: T00 = 253.16
-    real, external :: esatw_crm,esati_crm ! register functions from crm source.
-    real :: omtmp,omega
+    real(r8) T
+    real(r8), parameter :: T0 = 273.16
+    real(r8), parameter :: T00 = 253.16
+    real(r8), external :: esatw_crm,esati_crm ! register functions from crm source.
+    real(r8) :: omtmp,omega
     omtmp = (T-T00)/(T0-T00)
     omega = max(0.,min(1.,omtmp))
 !tf.where(T>T0,eliq(T),tf.where(T<T00,eice(T),(omega*eliq(T)+(1-omega)*eice(T))))
@@ -287,33 +374,33 @@ end subroutine neural_net
     endif
   end
 
-  real function tom_eliq(T)
+  real(r8) function tom_eliq(T)
     implicit none
-    real T
-    real, parameter :: T0 = 273.16
-    real, parameter :: cliq = -80. 
-    real a0,a1,a2,a3,a4,a5,a6,a7,a8
+    real(r8) T
+    real(r8), parameter :: T0 = 273.16
+    real(r8), parameter :: cliq = -80. 
+    real(r8) a0,a1,a2,a3,a4,a5,a6,a7,a8
     data a0,a1,a2,a3,a4,a5,a6,a7,a8 /&
        6.11239921, 0.443987641, 0.142986287e-1, &
        0.264847430e-3, 0.302950461e-5, 0.206739458e-7, &
        0.640689451e-10, -0.952447341e-13,-0.976195544e-15/
-    real :: dt
+    real(r8) :: dt
     dt = max(cliq,T-T0)
     tom_eliq = 100.*(a0 + dt*(a1+dt*(a2+dt*(a3+dt*(a4+dt*(a5+dt*(a6+dt*(a7+a8*dt))))))))  
   end 
 
 
-  real function tom_eice(T)
+  real(r8) function tom_eice(T)
     implicit none
-    real T
-    real, parameter :: T0 = 273.16
-    real a0,a1,a2,a3,a4,a5,a6,a7,a8
+    real(r8) T
+    real(r8), parameter :: T0 = 273.16
+    real(r8) a0,a1,a2,a3,a4,a5,a6,a7,a8
     data a0,a1,a2,a3,a4,a5,a6,a7,a8 /&
         6.11147274, 0.503160820, 0.188439774e-1, &
         0.420895665e-3, 0.615021634e-5,0.602588177e-7, &
         0.385852041e-9, 0.146898966e-11, 0.252751365e-14/       
-    real cice(6)
-    real dt
+    real(r8) cice(6)
+    real(r8) dt
     dt = T-T0
     cice(1) = 273.15
     cice(2) = 185.
@@ -358,6 +445,7 @@ end subroutine neural_net
       use namelist_utils,  only: find_group_name
       use units,           only: getunit, freeunit
       use mpishorthand
+      use cam_abortutils, only: endrun
 
       character(len=*), intent(in) :: nlfile  ! filepath for file containing namelist input
 
@@ -365,8 +453,11 @@ end subroutine neural_net
       integer :: unitn, ierr
       character(len=*), parameter :: subname = 'cbrain_readnl'
       
-      namelist /cbrain_nl/ prescribed_cloudbrain_net
-      !-----------------------------------------------------------------------------
+      namelist /cbrain_nl/ inputlength, outputlength, input_rh, &
+                           cb_fkb_model, &
+                           cb_inp_sub, cb_inp_div, cb_out_scale
+
+      ierr = 0
 
       if (masterproc) then
          unitn = getunit()
@@ -381,9 +472,16 @@ end subroutine neural_net
          close(unitn)
          call freeunit(unitn)
       end if
+
 #ifdef SPMD
       ! Broadcast namelist variables
-      call mpibcast(prescribed_cloudbrain_net, len(prescribed_cloudbrain_net), mpichar,0, mpicom)
+      call mpibcast(inputlength,  1,                 mpiint, 0, mpicom)
+      call mpibcast(outputlength, 1,                 mpiint, 0, mpicom)
+      call mpibcast(input_rh,     1,                 mpilog, 0, mpicom)
+      call mpibcast(cb_fkb_model, len(cb_fkb_model), mpichar, 0, mpicom)
+      call mpibcast(cb_inp_sub,   len(cb_inp_sub),   mpichar, 0, mpicom)
+      call mpibcast(cb_inp_div,   len(cb_inp_div),   mpichar, 0, mpicom)
+      call mpibcast(cb_out_scale, len(cb_out_scale), mpichar, 0, mpicom)
 #endif
 
    end subroutine cbrain_readnl

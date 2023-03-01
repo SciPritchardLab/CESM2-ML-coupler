@@ -39,7 +39,8 @@ public :: &
    diag_phys_writeout,       &! output diagnostics of the dynamics
    diag_phys_tend_writeout,  &! output physics tendencies
    diag_state_b4_phys_write, &! output state before physics execution
-   diag_state_b4_coupling,& ! output state before coupling to surface (pritch)
+   diag_state_b4_coupling,   &! output state before coupling to surface (pritch)
+   diag_braindebug,    &! output for debugging (sungduk)
    diag_conv,                &! output diagnostics of convective processes
    diag_surf,                &! output diagnostics of the surface
    diag_export,              &! output export state
@@ -773,6 +774,33 @@ end if
       call pbuf_set_field(pbuf2d, trefmxav_idx, -1.0e36_r8)
       call pbuf_set_field(pbuf2d, trefmnav_idx,  1.0e36_r8)
     end if
+
+  !!! sungduk (2023/Feb/23)
+  !!! For debugging only
+  !!! 0: before physics
+  !!! 1: after SP
+  !!! 2: after NN
+  do k = 0,2
+    call addfld ('T'//char(k+48)      ,(/ 'lev' /), 'A','K       ','Temperature'//' ('//char(k+48)//')')
+    call addfld ('Q'//char(k+48)      ,(/ 'lev' /), 'A','kg/kg   ','Specific humidity'//' ('//char(k+48)//')') 
+    call addfld ('CLDLIQ'//char(k+48) ,(/ 'lev' /), 'A','kg/kg   ','Cloud liquid'//' ('//char(k+48)//')')
+    call addfld ('CLDICE'//char(k+48) ,(/ 'lev' /), 'A','kg/kg   ','Cloud ice'//' ('//char(k+48)//')') 
+    call addfld ('NETSW'//char(k+48)  ,horiz_only,  'I','W/m2    ','Net shortwave flux at surface'//' ('//char(k+48)//')')
+    call addfld ('FLWDS'//char(k+48)  ,horiz_only,  'I','W/m2    ','Down longwave flux at surface'//' ('//char(k+48)//')')
+    call addfld ('PRECSC'//char(k+48) ,horiz_only,  'A','m/s     ','Convective snow rate'//' ('//char(k+48)//')')
+    call addfld ('PRECSL'//char(k+48) ,horiz_only,  'A','m/s     ','Stratiform snow rate'//' ('//char(k+48)//')')
+    call addfld ('PRECC'//char(k+48)  ,horiz_only,  'A','m/s     ','Convective precipitation rate'//' ('//char(k+48)//')')
+    call addfld ('PRECL'//char(k+48)  ,horiz_only,  'A','m/s     ','Stratiform precip rate'//' ('//char(k+48)//')')
+    call addfld ('SOLL'//char(k+48)   ,horiz_only,  'I','W/m2    ','Solar downward near infrared direct  to surface'//' ('//char(k+48)//')')
+    call addfld ('SOLS'//char(k+48)   ,horiz_only,  'I','W/m2    ','Direct solar rad on surface (< 0.7)'//' ('//char(k+48)//')')
+    call addfld ('SOLLD'//char(k+48)  ,horiz_only,  'I','W/m2    ','Diffuse solar rad on surface (>= 0.7)'//' ('//char(k+48)//')')
+    call addfld ('SOLSD'//char(k+48)  ,horiz_only,  'I','W/m2    ','Diffuse solar rad on surface (< 0.7)'//' ('//char(k+48)//')')
+
+    if ( k .eq. 0 ) then
+      call addfld ('PRECCdt'//char(k+48)  ,horiz_only,  'A','m/s     ','Convective precipitation rate (n-1)'//' ('//char(k+48)//')')
+      call addfld ('PRECLdt'//char(k+48)  ,horiz_only,  'A','m/s     ','Stratiform precip rate (n-1)'//' ('//char(k+48)//')')
+    end if
+  end do
 
   end subroutine diag_init_moist
 
@@ -2373,5 +2401,62 @@ end if
     end if
     
     end subroutine diag_state_b4_coupling
+
+ subroutine diag_braindebug (state, cam_out, k) ! sungduk
+ !
+ !---------------------------------------------------------------
+ !
+ ! Purpose:  Dump state at three different points
+ !           k=0, Before SP (physics)
+ !           k=1, After SP
+ !           k=2, After NN (diagnostic NN)
+ !
+ !---------------------------------------------------------------
+ !
+ ! Arguments
+ !
+    type(physics_state), intent(in) :: state
+    type(cam_out_t), intent(in) :: cam_out
+    integer, intent(in)             :: k
+ !
+ !---------------------------Local workspace-----------------------------
+ !
+    integer :: ixcldice, ixcldliq ! constituent indices for cloud liquid and ice water.
+    integer :: lchnk              ! chunk index
+ !
+ !-----------------------------------------------------------------------
+ !
+     if (moist_physics) then
+
+     lchnk = state%lchnk
+
+    call outfld('T'//char(k+48), state%t, pcols, lchnk   )
+    call cnst_get_ind('CLDLIQ', ixcldliq, abort=.false.)
+    call cnst_get_ind('CLDICE', ixcldice, abort=.false.)
+    if ( cnst_cam_outfld(       1) ) call outfld ('Q'//char(k+48), state%q(1,1,       1), pcols, lchnk)
+    if ( cnst_cam_outfld(ixcldliq) ) call outfld ('CLDLIQ'//char(k+48), state%q(1,1,ixcldliq), pcols, lchnk)
+    if ( cnst_cam_outfld(ixcldice) ) call outfld ('CLDICE'//char(k+48), state%q(1,1,ixcldice), pcols, lchnk)
+
+    call outfld('NETSW'//char(k+48),   cam_out%netsw,   pcols, lchnk)
+    call outfld('FLWDS'//char(k+48),   cam_out%flwds,   pcols, lchnk)
+    call outfld('PRECSC'//char(k+48),  cam_out%precsc,  pcols, lchnk)
+    call outfld('PRECSL'//char(k+48),  cam_out%precsl,  pcols, lchnk)
+    call outfld('PRECC'//char(k+48),   cam_out%precc,   pcols, lchnk)
+    call outfld('PRECL'//char(k+48),   cam_out%precl,   pcols, lchnk)
+    call outfld('SOLL'//char(k+48),    cam_out%soll,    pcols, lchnk)
+    call outfld('SOLS'//char(k+48),    cam_out%sols,    pcols, lchnk)
+    call outfld('SOLLD'//char(k+48),   cam_out%solld,   pcols, lchnk)
+    call outfld('SOLSD'//char(k+48),   cam_out%solsd,   pcols, lchnk)
+
+    if ( k .eq. 0 ) then
+      call outfld('PRECCdt'//char(k+48),   cam_out%precc,   pcols, lchnk)
+      call outfld('PRECLdt'//char(k+48),   cam_out%precl,   pcols, lchnk)
+    end if
+
+    else
+      call endrun('[diag_braindebug] some variables not set up for dry dynamics.')
+    end if
+
+    end subroutine diag_braindebug
 
 end module cam_diagnostics

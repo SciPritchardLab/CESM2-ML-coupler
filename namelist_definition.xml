@@ -2954,8 +2954,39 @@ Default: 10
 
 <!-- cbrain_nl -->
 
-<entry id="prescribed_cloudbrain_net" type="char*256" category="cbrain"
-       group="cbrain_nl" valid_values="/scratch/07064/tg863631/fortran_models/RH_RG_TrimTunedV1_config.txt" >
+<entry id="inputlength" type="integer" category="cbrain"
+       group="cbrain_nl" valid_values="" >
+Length of cbrain input vector
+</entry>
+
+<entry id="outputlength" type="integer" category="cbrain"
+       group="cbrain_nl" valid_values="" >
+Length of cbrain output vector
+</entry>
+
+<entry id="input_rh" type="logical" category="cbrain"
+       group="cbrain_nl" valid_values="" >
+Toggle relative humidity
+</entry>
+
+<entry id="cb_fkb_model" type="char*256" category="cbrain"
+       group="cbrain_nl" valid_values="" >
+Absolute path of a fkb model txt file
+</entry>
+
+<entry id="cb_inp_sub" type="char*256" category="cbrain"
+       group="cbrain_nl" valid_values="" >
+Absolute path of a input normalization factor txt file (sub)
+</entry>
+
+<entry id="cb_inp_div" type="char*256" category="cbrain"
+       group="cbrain_nl" valid_values="" >
+Absolute path of a input normalization factor txt file (div)
+</entry>
+
+<entry id="cb_out_scale" type="char*256" category="cbrain"
+       group="cbrain_nl" valid_values="" >
+Absolute path of an output rescaling factor txt file
 </entry>
 
 <!-- Moist Convection and Microphysics -->
