@@ -322,10 +322,15 @@ subroutine tphysbc_spcam (ztodt, state,   &
     use crm_physics,     only: crm_physics_tend
     use spmd_utils,       only: masterproc
 #ifdef CBRAIN    
-    use cloudbrain,      only : neural_net, init_neural_net
-    use physconst,       only: cpair
+    use cloudbrain,      only : neural_net, init_neural_net, &
+                                cb_partial_coupling, cb_partial_coupling_vars
+    use physconst,       only: cpair, zvir, gravit, cpairv, rairv
     use cam_logfile,     only: iulog
 #endif    
+#endif
+#ifdef CBRAINDIAG
+    use geopotential,     only: geopotential_t
+    use cam_history_support, only: pflds
 #endif
     use phys_control,    only: phys_getopts
     use sslt_rebin,      only: sslt_rebin_adv
@@ -356,9 +361,11 @@ subroutine tphysbc_spcam (ztodt, state,   &
 #endif
 
 #ifdef CBRAINDIAG
-    type(physics_state) :: state_save_sp
-    type(physics_tend ) :: tend_save_sp
-    type(cam_out_t)     :: cam_out_save_sp
+    type(physics_state) :: state_save_sp,   state_save_nn
+    type(physics_tend ) :: tend_save_sp,    tend_save_nn
+    type(cam_out_t)     :: cam_out_save_sp, cam_out_save_nn
+    logical             :: do_geopotential = .false.
+    real(r8)            :: zvirv(state%psetcols,pver)  ! Local zvir array pointer
 #endif
 
     !
@@ -409,7 +416,7 @@ subroutine tphysbc_spcam (ztodt, state,   &
     type(rad_out_t)                  :: rd
 
     integer :: teout_idx, qini_idx, cldliqini_idx, cldiceini_idx
-    integer :: ii, jj
+    integer :: ii, jj, k
 
     integer :: nstep_NN
     !-----------------------------------------------------------------------
@@ -699,10 +706,106 @@ endif
 #ifdef CBRAINDIAG
     call diag_braindebug(state, cam_out, 2) ! 2 for NN
 
+    ! save NN calculation for optional partial NN coupling
+    state_save_nn   = state
+    tend_save_nn    = tend
+    cam_out_save_nn = cam_out
+
     ! restore state, tend, cam_out to SP calculation
     state   = state_save_sp 
     tend    = tend_save_sp
     cam_out = cam_out_save_sp
+
+    ! Partial coupling
+    ! NN calculations are used for any variables included in 'cb_partial_coupling_vars'
+    ! e.g., ['QBCTEND','TBCTEND','CLDLIQBCTEND','CLDICEBCTEND','PRECSC','PRECC','FLWDS','NETSW','SOLL','SOLLD','SOLS','SOLSD'] 
+    if (cb_partial_coupling) then
+       ii = 1
+       do while (ii < pflds  .and. cb_partial_coupling_vars(ii) /= ' ')
+         if (trim(cb_partial_coupling_vars(ii)) == 'TBCTEND') then
+            state%t(:,:) = state_save_nn%t(:,:)
+            tend%dtdt(:,:) = tend_save_nn%dtdt(:,:)
+            do_geopotential = .true.
+            if (nstep-nstep0 .eq. nstep_NN .and. masterproc) then
+               write (iulog,*) 'CLOUDBRAIN partial coupling: ', trim(cb_partial_coupling_vars(ii))
+            endif
+         else if (trim(cb_partial_coupling_vars(ii)) == 'QBCTEND') then
+            state%q(:,:,1) = state_save_nn%q(:,:,1) 
+            do_geopotential = .true.
+            if (nstep-nstep0 .eq. nstep_NN .and. masterproc) then
+               write (iulog,*) 'CLOUDBRAIN partial coupling: ', trim(cb_partial_coupling_vars(ii))
+            endif
+         else if (trim(cb_partial_coupling_vars(ii)) == 'CLDLIQBCTEND') then
+            state%q(:,:,ixcldliq) = state_save_nn%q(:,:,ixcldliq)
+            if (nstep-nstep0 .eq. nstep_NN .and. masterproc) then
+               write (iulog,*) 'CLOUDBRAIN partial coupling: ', trim(cb_partial_coupling_vars(ii))
+            endif
+         else if (trim(cb_partial_coupling_vars(ii)) == 'CLDICEBCTEND') then
+            state%q(:,:,ixcldice) = state_save_nn%q(:,:,ixcldice)
+            if (nstep-nstep0 .eq. nstep_NN .and. masterproc) then
+               write (iulog,*) 'CLOUDBRAIN partial coupling: ', trim(cb_partial_coupling_vars(ii))
+            endif
+         else if (trim(cb_partial_coupling_vars(ii)) == 'PRECSC') then
+            cam_out%precsc(:) = cam_out_save_nn%precsc(:)
+            if (nstep-nstep0 .eq. nstep_NN .and. masterproc) then
+               write (iulog,*) 'CLOUDBRAIN partial coupling: ', trim(cb_partial_coupling_vars(ii))
+            endif
+         else if (trim(cb_partial_coupling_vars(ii)) == 'PRECC') then
+            cam_out%precc(:) = cam_out_save_nn%precc(:)
+            if (nstep-nstep0 .eq. nstep_NN .and. masterproc) then
+               write (iulog,*) 'CLOUDBRAIN partial coupling: ', trim(cb_partial_coupling_vars(ii))
+            endif
+         else if (trim(cb_partial_coupling_vars(ii)) == 'FLWDS') then
+            cam_out%flwds(:) = cam_out_save_nn%flwds(:)
+            if (nstep-nstep0 .eq. nstep_NN .and. masterproc) then
+               write (iulog,*) 'CLOUDBRAIN partial coupling: ', trim(cb_partial_coupling_vars(ii))
+            endif
+         else if (trim(cb_partial_coupling_vars(ii)) == 'NETSW') then
+            cam_out%netsw(:) = cam_out_save_nn%netsw(:)
+            if (nstep-nstep0 .eq. nstep_NN .and. masterproc) then
+               write (iulog,*) 'CLOUDBRAIN partial coupling: ', trim(cb_partial_coupling_vars(ii))
+            endif
+         else if (trim(cb_partial_coupling_vars(ii)) == 'SOLL') then
+            cam_out%soll(:) = cam_out_save_nn%soll(:)
+            if (nstep-nstep0 .eq. nstep_NN .and. masterproc) then
+               write (iulog,*) 'CLOUDBRAIN partial coupling: ', trim(cb_partial_coupling_vars(ii))
+            endif
+         else if (trim(cb_partial_coupling_vars(ii)) == 'SOLLD') then
+            cam_out%solld(:) = cam_out_save_nn%solld(:)
+            if (nstep-nstep0 .eq. nstep_NN .and. masterproc) then
+               write (iulog,*) 'CLOUDBRAIN partial coupling: ', trim(cb_partial_coupling_vars(ii))
+            endif
+         else if (trim(cb_partial_coupling_vars(ii)) == 'SOLS') then
+            cam_out%sols(:) = cam_out_save_nn%sols(:)
+            if (nstep-nstep0 .eq. nstep_NN .and. masterproc) then
+               write (iulog,*) 'CLOUDBRAIN partial coupling: ', trim(cb_partial_coupling_vars(ii))
+            endif
+         else if (trim(cb_partial_coupling_vars(ii)) == 'SOLSD') then
+            cam_out%solsd(:) = cam_out_save_nn%solsd(:)
+            if (nstep-nstep0 .eq. nstep_NN .and. masterproc) then
+               write (iulog,*) 'CLOUDBRAIN partial coupling: ', trim(cb_partial_coupling_vars(ii))
+            endif
+         else
+            call endrun('[CLOUDBRAIN: cb_partial_coupling] Wrong variables are included in cb_partial_coupling_vars.')
+         end if
+         ii = ii+1
+      end do
+
+      if (do_geopotential) then
+          zvirv(:,:) = zvir
+          call geopotential_t  ( &
+               state%lnpint, state%lnpmid,   state%pint, state%pmid , state%pdel, state%rpdel, &
+               state%t     , state%q(:,:,1), rairv(:,:,lchnk),  gravit,     zvirv, &
+               state%zi    , state%zm      , ncol)
+          ! update dry static energy for use in next process
+          do k = ptend%top_level, ptend%bot_level
+             state%s(:ncol,k) = state%t(:ncol,k  )*cpairv(:ncol,k,lchnk) &
+                              + gravit*state%zm(:ncol,k) + state%phis(:ncol)
+          end do
+      end if
+
+      call diag_braindebug(state, cam_out, 3) ! 2 for partial coupling
+    end if
 #endif
 
     ! Diagnose the location of the tropopause and its location to the history

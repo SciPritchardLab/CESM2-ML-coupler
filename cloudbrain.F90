@@ -17,6 +17,7 @@ use constituents,    only: cnst_get_ind
 use physics_types,    only: physics_state,  physics_ptend, physics_ptend_init
 use cam_logfile,       only: iulog
 use physics_buffer,   only: physics_buffer_desc, pbuf_get_field, pbuf_get_index
+use cam_history_support, only: pflds, fieldname_lenp2
 
 ! -------- NEURAL-FORTRAN --------
 ! imports
@@ -32,14 +33,15 @@ use mod_ensemble, only: ensemble_type
   ! Define variables for this entire module
   ! These are nameliest variables.
   ! If not specified in atm_in, the following defaults values are used.
-  integer :: inputlength  = 109     ! length of NN input vector
+  integer :: inputlength  = 108     ! length of NN input vector
   integer :: outputlength = 112     ! length of NN output vector
   logical :: input_rh     = .true.  ! toggle to switch from q --> RH input
   character(len=256)    :: cb_fkb_model   ! absolute filepath for a fkb model txt file
   character(len=256)    :: cb_inp_sub     ! absolute filepath for a inp_sub.txt
   character(len=256)    :: cb_inp_div     ! absolute filepath for a inp_div.txt
   character(len=256)    :: cb_out_scale   ! absolute filepath for a out_scale.txt
-
+  logical :: cb_partial_coupling  = .false.
+  character(len=fieldname_lenp2) :: cb_partial_coupling_vars(pflds)
 
   type(network_type) :: cloudbrain_net
 
@@ -47,7 +49,8 @@ use mod_ensemble, only: ensemble_type
   real(r8), allocatable :: inp_div(:)
   real(r8), allocatable :: out_scale(:)
 
-  public neural_net, init_neural_net, cbrain_readnl
+  public neural_net, init_neural_net, cbrain_readnl, &
+         cb_partial_coupling, cb_partial_coupling_vars
   
 contains
 
@@ -100,6 +103,8 @@ contains
   ! Ankitesh says on Slack that ['QBP','TBP','CLDLIQBP','CLDICEBP','PS', 'SOLIN', 'SHFLX', 'LHFLX']
   ! Gunnar's ANN (2022DEC)
   ! INPUT: ['QBP', 'TBP','PS', 'SOLIN', 'SHFLX','LHFLX','PRECTt-dt','CLDLIQBP','CLDICEBP']
+  ! Gunnar's ANN (2023FEB)
+  ! INPUT: ['QBP', 'TBP','PS', 'SOLIN', 'SHFLX', 'LHFLX','CLDLIQBP','CLDICEBP']
     if (input_rh) then
        do i = 1,ncol
          do k=ntrim+1,pver
@@ -125,9 +130,13 @@ contains
     input(:ncol,(2*pvert+2))             = nn_solin(:ncol) ! SOLIN / WARNING this is being lazily mined from part of SP solution... should be avoidable in future when bypassing SP totally but will take work.
     input(:ncol,(2*pvert+3))             = cam_in%shf(:ncol) ! SHFLX
     input(:ncol,(2*pvert+4))             = cam_in%lhf(:ncol) ! LHFLX
-    input(:ncol,(2*pvert+5))             = cam_out%precc(:ncol)  + cam_out%precl(:ncol) ! PRECTt-dt
-    input(:ncol,(2*pvert+6):(3*pvert+5)) = state%q(:ncol,(ntrim+1):pver,ixcldliq) ! CLDLIQBP
-    input(:ncol,(3*pvert+6):(4*pvert+5)) = state%q(:ncol,(ntrim+1):pver,ixcldice) ! CLDICEBP
+    input(:ncol,(2*pvert+5):(3*pvert+4)) = state%q(:ncol,(ntrim+1):pver,ixcldliq) ! CLDLIQBP
+    input(:ncol,(3*pvert+5):(4*pvert+4)) = state%q(:ncol,(ntrim+1):pver,ixcldice) ! CLDICEBP
+    !!! for 2022-DEC input incl. PREDCTt-dt
+    !input(:ncol,(2*pvert+5))             = cam_out%precc(:ncol)  + cam_out%precl(:ncol) ! PRECTt-dt
+    !input(:ncol,(2*pvert+6):(3*pvert+5)) = state%q(:ncol,(ntrim+1):pver,ixcldliq) ! CLDLIQBP
+    !input(:ncol,(3*pvert+6):(4*pvert+5)) = state%q(:ncol,(ntrim+1):pver,ixcldice) ! CLDICEBP
+    !!!
 
 
 ! Tue Jan 24 13:28:43 CST 2023
@@ -139,7 +148,7 @@ contains
         write (iulog,*) 'BRAINDEBUG SOLIN=',nn_solin(1)
         write (iulog,*) 'BRAINDEBUG SHFLX=',cam_in%shf(1)
         write (iulog,*) 'BRAINDEBUG LHFLX=',cam_in%lhf(1)
-        write (iulog,*) 'BRAINDEBUG PRECTm1=',cam_out%precc(1) + cam_out%precl(1)
+        !write (iulog,*) 'BRAINDEBUG PRECTm1=',cam_out%precc(1) + cam_out%precl(1)
         write (iulog,*) 'BRAINDEBUG CLDLIQBP=', state%q(1,(ntrim+1):pver,ixcldliq)
         write (iulog,*) 'BRAINDEBUG CLDICEBP=', state%q(1,(ntrim+1):pver,ixcldice)
       endif
@@ -263,6 +272,9 @@ contains
 
 
 ! ------------- 2. NN output to land forcing ---------
+!!! Sungduk: these are original version.
+!!!          It works, but I wrote it again to add 'ocean only coupling' option
+!!!          (#CBRAIN_OCN_ONLY)
 !!! ! ['PRECT','PREC_CRM_SNOW','PREC_CRM','NN2L_FLWDS','NN2L_DOWN_SW','NN2L_SOLL','NN2L_SOLLD','NN2L_SOLS','NN2L_SOLSD']
 !!!    ! These are the cam_out members that are not assigned in cam_export
 !!!    cam_out%flwds = output(:ncol,4*pvert+3)
@@ -450,15 +462,20 @@ end subroutine neural_net
       character(len=*), intent(in) :: nlfile  ! filepath for file containing namelist input
 
       ! Local variables
-      integer :: unitn, ierr
+      integer :: unitn, ierr, f
       character(len=*), parameter :: subname = 'cbrain_readnl'
       
       namelist /cbrain_nl/ inputlength, outputlength, input_rh, &
                            cb_fkb_model, &
-                           cb_inp_sub, cb_inp_div, cb_out_scale
+                           cb_inp_sub, cb_inp_div, cb_out_scale, &
+                           cb_partial_coupling, cb_partial_coupling_vars
+
+      ! Initialize 'cb_partial_coupling_vars'
+      do f = 1, pflds
+        cb_partial_coupling_vars(f)        = ' '
+      end do
 
       ierr = 0
-
       if (masterproc) then
          unitn = getunit()
          open( unitn, file=trim(nlfile), status='old' )
@@ -482,6 +499,11 @@ end subroutine neural_net
       call mpibcast(cb_inp_sub,   len(cb_inp_sub),   mpichar, 0, mpicom)
       call mpibcast(cb_inp_div,   len(cb_inp_div),   mpichar, 0, mpicom)
       call mpibcast(cb_out_scale, len(cb_out_scale), mpichar, 0, mpicom)
+      call mpibcast(cb_partial_coupling, 1,          mpilog,  0, mpicom)
+      call mpibcast(cb_partial_coupling_vars, len(cb_partial_coupling_vars(1))*pflds, mpichar, 0, mpicom, ierr)
+      if (ierr /= 0) then
+         call endrun(subname // ':: ERROR broadcasting namelist variable cb_partial_coupling_vars')
+      end if
 #endif
 
    end subroutine cbrain_readnl

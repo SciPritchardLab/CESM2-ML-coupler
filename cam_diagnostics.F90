@@ -780,7 +780,8 @@ end if
   !!! 0: before physics
   !!! 1: after SP
   !!! 2: after NN
-  do k = 0,2
+  !!! 3: after partial coupling
+  do k = 0,3
     call addfld ('T'//char(k+48)      ,(/ 'lev' /), 'A','K       ','Temperature'//' ('//char(k+48)//')')
     call addfld ('Q'//char(k+48)      ,(/ 'lev' /), 'A','kg/kg   ','Specific humidity'//' ('//char(k+48)//')') 
     call addfld ('CLDLIQ'//char(k+48) ,(/ 'lev' /), 'A','kg/kg   ','Cloud liquid'//' ('//char(k+48)//')')

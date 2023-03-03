@@ -2989,6 +2989,20 @@ Absolute path of a input normalization factor txt file (div)
 Absolute path of an output rescaling factor txt file
 </entry>
 
+<entry id="cb_partial_coupling" type="logical" category="cbrain"
+       group="cbrain_nl" valid_values="" >
+Toggle partial coupling of NN output;
+cb_partial_coupling_vars should be supplied if this option is .true. 
+The partial coupling is only active with diagnostic NN mode, that is,
+CPP "#CBRAINDIAG" should be defined.
+</entry>
+
+<entry id="cb_partial_coupling_vars" type="char*26(1000)"  category="cbrain"
+       group="cbrain_nl" valid_values="" >
+List of the names of  NN output variables that couple to GCM,
+if cb_partial_coupling=.true.
+</entry>
+
 <!-- Moist Convection and Microphysics -->
 
 <entry id="deep_scheme" type="char*16" category="conv"
