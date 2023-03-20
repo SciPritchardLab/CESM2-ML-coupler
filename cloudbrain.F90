@@ -35,7 +35,8 @@ use mod_ensemble, only: ensemble_type
   ! If not specified in atm_in, the following defaults values are used.
   integer :: inputlength  = 108     ! length of NN input vector
   integer :: outputlength = 112     ! length of NN output vector
-  logical :: input_rh     = .true.  ! toggle to switch from q --> RH input
+  logical :: input_rh     = .false.  ! toggle to switch from q --> RH input
+  logical :: cb_use_input_prectm1 = .false.  ! use previous timestep PRECT for input variable 
   character(len=256)    :: cb_fkb_model   ! absolute filepath for a fkb model txt file
   character(len=256)    :: cb_inp_sub     ! absolute filepath for a inp_sub.txt
   character(len=256)    :: cb_inp_div     ! absolute filepath for a inp_div.txt
@@ -43,8 +44,14 @@ use mod_ensemble, only: ensemble_type
   logical :: cb_partial_coupling  = .false.
   character(len=fieldname_lenp2) :: cb_partial_coupling_vars(pflds)
 
+#ifdef CBRAIN_ENSEMBLE
+  ! make sure that 'ensemble_members.txt', which contains a list of the absolute
+  ! paths of fkb txt models, in the cam run directory.
+  real(rk) :: ens_noise = 0.0
+  type(ensemble_type) :: cloudbrain_ensemble
+#else 
   type(network_type) :: cloudbrain_net
-
+#endif
   real(r8), allocatable :: inp_sub(:)
   real(r8), allocatable :: inp_div(:)
   real(r8), allocatable :: out_scale(:)
@@ -132,11 +139,14 @@ contains
     input(:ncol,(2*pvert+4))             = cam_in%lhf(:ncol) ! LHFLX
     input(:ncol,(2*pvert+5):(3*pvert+4)) = state%q(:ncol,(ntrim+1):pver,ixcldliq) ! CLDLIQBP
     input(:ncol,(3*pvert+5):(4*pvert+4)) = state%q(:ncol,(ntrim+1):pver,ixcldice) ! CLDICEBP
-    !!! for 2022-DEC input incl. PREDCTt-dt
-    !input(:ncol,(2*pvert+5))             = cam_out%precc(:ncol)  + cam_out%precl(:ncol) ! PRECTt-dt
-    !input(:ncol,(2*pvert+6):(3*pvert+5)) = state%q(:ncol,(ntrim+1):pver,ixcldliq) ! CLDLIQBP
-    !input(:ncol,(3*pvert+6):(4*pvert+5)) = state%q(:ncol,(ntrim+1):pver,ixcldice) ! CLDICEBP
-    !!!
+    if (cb_use_input_prectm1) then
+       input(:ncol,(2*pvert+5))             = cam_out%precc(:ncol)  + cam_out%precl(:ncol) ! PRECTt-dt
+       input(:ncol,(2*pvert+6):(3*pvert+5)) = state%q(:ncol,(ntrim+1):pver,ixcldliq) ! CLDLIQBP
+       input(:ncol,(3*pvert+6):(4*pvert+5)) = state%q(:ncol,(ntrim+1):pver,ixcldice) ! CLDICEBP
+    else
+       input(:ncol,(2*pvert+5):(3*pvert+4)) = state%q(:ncol,(ntrim+1):pver,ixcldliq) ! CLDLIQBP
+       input(:ncol,(3*pvert+5):(4*pvert+4)) = state%q(:ncol,(ntrim+1):pver,ixcldice) ! CLDICEBP
+    endif
 
 
 ! Tue Jan 24 13:28:43 CST 2023
@@ -148,7 +158,9 @@ contains
         write (iulog,*) 'BRAINDEBUG SOLIN=',nn_solin(1)
         write (iulog,*) 'BRAINDEBUG SHFLX=',cam_in%shf(1)
         write (iulog,*) 'BRAINDEBUG LHFLX=',cam_in%lhf(1)
-        !write (iulog,*) 'BRAINDEBUG PRECTm1=',cam_out%precc(1) + cam_out%precl(1)
+        if (cb_use_input_prectm1) then
+          write (iulog,*) 'BRAINDEBUG PRECTm1=',cam_out%precc(1) + cam_out%precl(1)
+        endif
         write (iulog,*) 'BRAINDEBUG CLDLIQBP=', state%q(1,(ntrim+1):pver,ixcldliq)
         write (iulog,*) 'BRAINDEBUG CLDICEBP=', state%q(1,(ntrim+1):pver,ixcldice)
       endif
@@ -171,7 +183,11 @@ contains
 #endif
 
     do i=1,ncol
-      output(i,:) = cloudbrain_net % output(input(i,:))
+#ifdef CBRAIN_ENSEMBLE
+      output(i,:) = cloudbrain_ensemble % average(input(i,:))
+#else
+      output(i,:) = cloudbrain_net      % output(input(i,:))
+#endif
     end do
 #ifdef BRAINDEBUG
       if (masterproc) then
@@ -329,10 +345,17 @@ end subroutine neural_net
     allocate(inp_div (inputlength))
     allocate(out_scale (outputlength))
 
+#ifdef CBRAIN_ENSEMBLE
+    cloudbrain_ensemble = ensemble_type('', ens_noise)
+    if (masterproc) then
+       write (iulog,*) 'CLOUDBRAIN: loaded ensemble from ensemble_members.txt'
+    endif
+#else
     call cloudbrain_net %load(cb_fkb_model)
     if (masterproc) then
        write (iulog,*) 'CLOUDBRAIN: loaded network from txt file, ', trim(cb_fkb_model)
     endif
+#endif
 
     open (unit=555,file=cb_inp_sub,status='old',action='read')
     read(555,*) inp_sub(:)
@@ -468,7 +491,8 @@ end subroutine neural_net
       namelist /cbrain_nl/ inputlength, outputlength, input_rh, &
                            cb_fkb_model, &
                            cb_inp_sub, cb_inp_div, cb_out_scale, &
-                           cb_partial_coupling, cb_partial_coupling_vars
+                           cb_partial_coupling, cb_partial_coupling_vars,&
+                           cb_use_input_prectm1
 
       ! Initialize 'cb_partial_coupling_vars'
       do f = 1, pflds
@@ -492,9 +516,10 @@ end subroutine neural_net
 
 #ifdef SPMD
       ! Broadcast namelist variables
-      call mpibcast(inputlength,  1,                 mpiint, 0, mpicom)
-      call mpibcast(outputlength, 1,                 mpiint, 0, mpicom)
-      call mpibcast(input_rh,     1,                 mpilog, 0, mpicom)
+      call mpibcast(inputlength,  1,                 mpiint,  0, mpicom)
+      call mpibcast(outputlength, 1,                 mpiint,  0, mpicom)
+      call mpibcast(input_rh,     1,                 mpilog,  0, mpicom)
+      call mpibcast(cb_use_input_prectm1,1,          mpilog,  0, mpicom)
       call mpibcast(cb_fkb_model, len(cb_fkb_model), mpichar, 0, mpicom)
       call mpibcast(cb_inp_sub,   len(cb_inp_sub),   mpichar, 0, mpicom)
       call mpibcast(cb_inp_div,   len(cb_inp_div),   mpichar, 0, mpicom)

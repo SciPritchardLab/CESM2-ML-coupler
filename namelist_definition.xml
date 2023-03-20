@@ -2969,6 +2969,11 @@ Length of cbrain output vector
 Toggle relative humidity
 </entry>
 
+<entry id="cb_use_input_prectm1" type="logical" category="cbrain"
+       group="cbrain_nl" valid_values="" >
+Use previous time step PRECT for NN input variable
+</entry>
+
 <entry id="cb_fkb_model" type="char*256" category="cbrain"
        group="cbrain_nl" valid_values="" >
 Absolute path of a fkb model txt file
