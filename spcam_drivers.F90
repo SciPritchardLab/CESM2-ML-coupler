@@ -628,7 +628,7 @@ subroutine tphysbc_spcam (ztodt, state,   &
     ! call t_stopf('cam_export')
 
 #ifdef CBRAINDIAG
-    ! cam_out is called here for diag_braindebug
+    ! cam_export is called here for diag_braindebug
     ! so that cam_out%prec* variables are updated before diag_braindebug
     call cam_export (state,cam_out,pbuf)
     call diag_braindebug(state, cam_out, 1) ! 1 for SP
@@ -660,6 +660,8 @@ if (is_first_step() .or. is_first_restart_step()) then
 endif
 
 nstep_NN = 86400 / get_step_size()
+! nstep_NN = 864000000 / get_step_size() ! for SP baseline
+
 if (nstep-nstep0 .ge. nstep_NN) then ! allow coupling after 1 day
     if (nstep-nstep0 .eq. nstep_NN) then
        write (iulog,*) 'CLOUDBRAIN: NN is coupled at nstep = ', nstep

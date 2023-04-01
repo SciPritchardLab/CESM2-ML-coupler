@@ -23,7 +23,6 @@ use cam_history_support, only: pflds, fieldname_lenp2
 ! imports
 use mod_kinds, only: ik, rk
 use mod_network , only: network_type
-use mod_ensemble, only: ensemble_type
 ! --------------------------------
 
   implicit none
@@ -44,14 +43,7 @@ use mod_ensemble, only: ensemble_type
   logical :: cb_partial_coupling  = .false.
   character(len=fieldname_lenp2) :: cb_partial_coupling_vars(pflds)
 
-#ifdef CBRAIN_ENSEMBLE
-  ! make sure that 'ensemble_members.txt', which contains a list of the absolute
-  ! paths of fkb txt models, in the cam run directory.
-  real(rk) :: ens_noise = 0.0
-  type(ensemble_type) :: cloudbrain_ensemble
-#else 
   type(network_type) :: cloudbrain_net
-#endif
   real(r8), allocatable :: inp_sub(:)
   real(r8), allocatable :: inp_div(:)
   real(r8), allocatable :: out_scale(:)
@@ -183,11 +175,7 @@ contains
 #endif
 
     do i=1,ncol
-#ifdef CBRAIN_ENSEMBLE
-      output(i,:) = cloudbrain_ensemble % average(input(i,:))
-#else
       output(i,:) = cloudbrain_net      % output(input(i,:))
-#endif
     end do
 #ifdef BRAINDEBUG
       if (masterproc) then
@@ -345,17 +333,10 @@ end subroutine neural_net
     allocate(inp_div (inputlength))
     allocate(out_scale (outputlength))
 
-#ifdef CBRAIN_ENSEMBLE
-    cloudbrain_ensemble = ensemble_type('', ens_noise)
-    if (masterproc) then
-       write (iulog,*) 'CLOUDBRAIN: loaded ensemble from ensemble_members.txt'
-    endif
-#else
     call cloudbrain_net %load(cb_fkb_model)
     if (masterproc) then
        write (iulog,*) 'CLOUDBRAIN: loaded network from txt file, ', trim(cb_fkb_model)
     endif
-#endif
 
     open (unit=555,file=cb_inp_sub,status='old',action='read')
     read(555,*) inp_sub(:)
