@@ -43,10 +43,15 @@ use mod_network , only: network_type
   logical :: cb_partial_coupling  = .false.
   character(len=fieldname_lenp2) :: cb_partial_coupling_vars(pflds)
 
-  type(network_type) :: cloudbrain_net
+  type(network_type), allocatable :: cloudbrain_net(:)
   real(r8), allocatable :: inp_sub(:)
   real(r8), allocatable :: inp_div(:)
   real(r8), allocatable :: out_scale(:)
+
+  logical :: cb_do_ensemble  = .false.
+  integer :: cb_ens_size
+  integer :: max_nn_ens = 100 ! Max. ensemble size is arbitrarily set to 100.
+  character(len=256), allocatable :: cb_ens_fkb_model_list(:)
 
   public neural_net, init_neural_net, cbrain_readnl, &
          cb_partial_coupling, cb_partial_coupling_vars
@@ -69,7 +74,7 @@ contains
     ! local variables
    real(r8) :: input(pcols,inputlength)
    real(r8) :: output(pcols,outputlength)
-   integer :: i,k,ncol,ixcldice,ixcldliq,ii,kk,klev_crmtop
+   integer :: i,k,ncol,ixcldice,ixcldliq,ii,kk,klev_crmtop,kens
    real (r8) :: s_bctend(pcols,pver), q_bctend(pcols,pver), qc_bctend(pcols,pver), qi_bctend(pcols,pver), qafter, safter
    logical :: doconstraints
    logical ::  lq(pcnst)
@@ -175,7 +180,14 @@ contains
 #endif
 
     do i=1,ncol
-      output(i,:) = cloudbrain_net      % output(input(i,:))
+      if (cb_do_ensemble) then
+        output(i,:) = 0.
+        do kens = 1,cb_ens_size
+           output(i,:) = output(i,:) +  (1._r8/cb_ens_size) * cloudbrain_net(kens) % output(input(i,:))
+        enddo
+      else
+        output(i,:) = cloudbrain_net(1) % output(input(i,:))
+      endif
     end do
 #ifdef BRAINDEBUG
       if (masterproc) then
@@ -329,11 +341,24 @@ end subroutine neural_net
 
     implicit none
 
+    integer :: i
+
     allocate(inp_sub (inputlength))
     allocate(inp_div (inputlength))
     allocate(out_scale (outputlength))
 
-    call cloudbrain_net %load(cb_fkb_model)
+    if (cb_do_ensemble) then
+       write (iulog,*) 'CLOUDBRAIN: Ensemble is turned on with Ensemble size  ', cb_ens_size
+       allocate(cloudbrain_net (cb_ens_size))
+       do i = 1,cb_ens_size
+          call cloudbrain_net(i) %load(cb_ens_fkb_model_list(i))
+       enddo
+       write (iulog,*) 'CLOUDBRAIN: Ensemble fkb model ', i, ' : ', trim(cb_ens_fkb_model_list(i))
+    else
+       allocate(cloudbrain_net (1))
+       call cloudbrain_net(1) %load(cb_fkb_model)
+    endif
+
     if (masterproc) then
        write (iulog,*) 'CLOUDBRAIN: loaded network from txt file, ', trim(cb_fkb_model)
     endif
@@ -473,11 +498,18 @@ end subroutine neural_net
                            cb_fkb_model, &
                            cb_inp_sub, cb_inp_div, cb_out_scale, &
                            cb_partial_coupling, cb_partial_coupling_vars,&
-                           cb_use_input_prectm1
+                           cb_use_input_prectm1, &
+                           cb_do_ensemble, cb_ens_size, cb_ens_fkb_model_list
 
       ! Initialize 'cb_partial_coupling_vars'
       do f = 1, pflds
-        cb_partial_coupling_vars(f)        = ' '
+        cb_partial_coupling_vars(f) = ' '
+      end do
+
+      ! Initialize 'cb_ens_fkb_model_list'
+      allocate(cb_ens_fkb_model_list(max_nn_ens))
+      do f = 1, max_nn_ens
+        cb_ens_fkb_model_list(f) = ' '
       end do
 
       ierr = 0
@@ -507,6 +539,9 @@ end subroutine neural_net
       call mpibcast(cb_out_scale, len(cb_out_scale), mpichar, 0, mpicom)
       call mpibcast(cb_partial_coupling, 1,          mpilog,  0, mpicom)
       call mpibcast(cb_partial_coupling_vars, len(cb_partial_coupling_vars(1))*pflds, mpichar, 0, mpicom, ierr)
+      call mpibcast(cb_do_ensemble, 1,               mpilog,  0, mpicom)
+      call mpibcast(cb_ens_size,  1,                 mpiint,  0, mpicom)
+      call mpibcast(cb_ens_fkb_model_list,    len(cb_ens_fkb_model_list(1))*max_nn_ens, mpichar, 0, mpicom, ierr)
       if (ierr /= 0) then
          call endrun(subname // ':: ERROR broadcasting namelist variable cb_partial_coupling_vars')
       end if

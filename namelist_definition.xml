@@ -3008,6 +3008,23 @@ List of the names of  NN output variables that couple to GCM,
 if cb_partial_coupling=.true.
 </entry>
 
+<entry id="cb_do_ensemble" type="logical" category="cbrain"
+       group="cbrain_nl" valid_values="" >
+Toggle ensemble NN inference;
+</entry>
+
+<entry id="cb_ens_size" type="integer" category="cbrain"
+       group="cbrain_nl" valid_values="" >
+The number of ensemble size, i.e., how many FKB models?
+</entry>
+
+<entry id="cb_ens_fkb_model_list" type="char*256(100)"  category="cbrain"
+       group="cbrain_nl" valid_values="" >
+List of the absolute file path of FKB models. 
+Only if cb_do_ensemble=.true.,
+otherwise, cb_fkb_model is used.
+</entry>
+
 <!-- Moist Convection and Microphysics -->
 
 <entry id="deep_scheme" type="char*16" category="conv"
