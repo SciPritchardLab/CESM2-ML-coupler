@@ -800,6 +800,11 @@ end if
     if ( k .eq. 0 ) then
       call addfld ('PRECCdt'//char(k+48)  ,horiz_only,  'A','m/s     ','Convective precipitation rate (n-1)'//' ('//char(k+48)//')')
       call addfld ('PRECLdt'//char(k+48)  ,horiz_only,  'A','m/s     ','Stratiform precip rate (n-1)'//' ('//char(k+48)//')')
+      ! cam_in variables
+      call addfld ('SHFLX'//char(k+48)    ,horiz_only, 'A','W/m2','Surface sensible heat flux')
+      call addfld ('LHFLX'//char(k+48)    ,horiz_only, 'A','W/m2','Surface latent heat flux')
+      ! rad variables
+      call addfld ('SOLIN'//char(k+48)    ,horiz_only, 'A','W/m2','Solar insolation')
     end if
   end do
 
@@ -2403,7 +2408,7 @@ end if
     
     end subroutine diag_state_b4_coupling
 
- subroutine diag_braindebug (state, cam_out, k) ! sungduk
+ subroutine diag_braindebug (state, cam_out, cam_in, k) ! sungduk
  !
  !---------------------------------------------------------------
  !
@@ -2418,6 +2423,7 @@ end if
  !
     type(physics_state), intent(in) :: state
     type(cam_out_t), intent(in) :: cam_out
+    type(cam_in_t), intent(in) :: cam_in
     integer, intent(in)             :: k
  !
  !---------------------------Local workspace-----------------------------
@@ -2452,6 +2458,10 @@ end if
     if ( k .eq. 0 ) then
       call outfld('PRECCdt'//char(k+48),   cam_out%precc,   pcols, lchnk)
       call outfld('PRECLdt'//char(k+48),   cam_out%precl,   pcols, lchnk)
+      call outfld('SHFLX'//char(k+48),     cam_in%shf,      pcols, lchnk)
+      call outfld('LHFLX'//char(k+48),     cam_in%lhf,      pcols, lchnk)
+      ! SOLIN is calculated from a rad subroutine,
+      ! so it's outputted in spcam_driver.
     end if
 
     else

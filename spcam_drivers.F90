@@ -473,7 +473,7 @@ subroutine tphysbc_spcam (ztodt, state,   &
     tend_save = tend
 #endif
 #ifdef CBRAINDIAG
-    call diag_braindebug(state, cam_out, 0) ! 0 for 'before physics'
+    call diag_braindebug(state, cam_out, cam_in, 0) ! 0 for 'before physics'
 #endif
 
     ! compute mass integrals of input tracers state
@@ -631,7 +631,8 @@ subroutine tphysbc_spcam (ztodt, state,   &
     ! cam_export is called here for diag_braindebug
     ! so that cam_out%prec* variables are updated before diag_braindebug
     call cam_export (state,cam_out,pbuf)
-    call diag_braindebug(state, cam_out, 1) ! 1 for SP
+    call diag_braindebug(state, cam_out, cam_in, 1) ! 1 for SP
+    call outfld('SOLIN0', nn_solin, pcols, lchnk)
 
     ! save SP calculation
     state_save_sp   = state
@@ -660,7 +661,9 @@ if (is_first_step() .or. is_first_restart_step()) then
 endif
 
 nstep_NN = 86400 / get_step_size()
-! nstep_NN = 864000000 / get_step_size() ! for SP baseline
+#ifdef CBRAIN_BASELINE
+nstep_NN = 864000000 / get_step_size() ! for SP baseline
+#endif
 
 if (nstep-nstep0 .ge. nstep_NN) then ! allow coupling after 1 day
     if (nstep-nstep0 .eq. nstep_NN) then
@@ -706,7 +709,7 @@ endif
     call t_stopf('cam_export')
 
 #ifdef CBRAINDIAG
-    call diag_braindebug(state, cam_out, 2) ! 2 for NN
+    call diag_braindebug(state, cam_out, cam_in, 2) ! 2 for NN
 
     ! save NN calculation for optional partial NN coupling
     state_save_nn   = state
@@ -806,7 +809,7 @@ endif
           end do
       end if
 
-      call diag_braindebug(state, cam_out, 3) ! 2 for partial coupling
+      call diag_braindebug(state, cam_out, cam_in, 3) ! 2 for partial coupling
     end if
 #endif
 
