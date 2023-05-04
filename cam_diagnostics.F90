@@ -800,11 +800,12 @@ end if
     if ( k .eq. 0 ) then
       call addfld ('PRECCdt'//char(k+48)  ,horiz_only,  'A','m/s     ','Convective precipitation rate (n-1)'//' ('//char(k+48)//')')
       call addfld ('PRECLdt'//char(k+48)  ,horiz_only,  'A','m/s     ','Stratiform precip rate (n-1)'//' ('//char(k+48)//')')
+      call addfld ('PS'//char(k+48)       ,horiz_only,  'A','Pa      ','Surface pressure'//' ('//char(k+48)//')')
       ! cam_in variables
-      call addfld ('SHFLX'//char(k+48)    ,horiz_only, 'A','W/m2','Surface sensible heat flux')
-      call addfld ('LHFLX'//char(k+48)    ,horiz_only, 'A','W/m2','Surface latent heat flux')
+      call addfld ('SHFLX'//char(k+48)    ,horiz_only, 'A','W/m2','Surface sensible heat flux'//' ('//char(k+48)//')')
+      call addfld ('LHFLX'//char(k+48)    ,horiz_only, 'A','W/m2','Surface latent heat flux'//' ('//char(k+48)//')')
       ! rad variables
-      call addfld ('SOLIN'//char(k+48)    ,horiz_only, 'A','W/m2','Solar insolation')
+      call addfld ('SOLIN'//char(k+48)    ,horiz_only, 'A','W/m2','Solar insolation'//' ('//char(k+48)//')')
     end if
   end do
 
@@ -2460,8 +2461,9 @@ end if
       call outfld('PRECLdt'//char(k+48),   cam_out%precl,   pcols, lchnk)
       call outfld('SHFLX'//char(k+48),     cam_in%shf,      pcols, lchnk)
       call outfld('LHFLX'//char(k+48),     cam_in%lhf,      pcols, lchnk)
+      call outfld('PS'//char(k+48),        state%ps,        pcols, lchnk)
       ! SOLIN is calculated from a rad subroutine,
-      ! so it's outputted in spcam_driver.
+      ! so SOLIN0 is outputted in spcam_driver.
     end if
 
     else
