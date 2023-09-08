@@ -3015,7 +3015,7 @@ Toggle ensemble NN inference;
 
 <entry id="cb_ens_size" type="integer" category="cbrain"
        group="cbrain_nl" valid_values="" >
-The number of ensemble size, i.e., how many FKB models?
+The size of ensemble, i.e., how many FKB models for ens_avg?
 </entry>
 
 <entry id="cb_ens_fkb_model_list" type="char*256(100)"  category="cbrain"
@@ -3023,6 +3023,11 @@ The number of ensemble size, i.e., how many FKB models?
 List of the absolute file path of FKB models. 
 Only if cb_do_ensemble=.true.,
 otherwise, cb_fkb_model is used.
+</entry>
+
+<entry id="cb_random_ens_size" type="integer" category="cbrain"
+       group="cbrain_nl" valid_values="" >
+The size of ensemble member subset, i.e., how many FKB models for ens-avg?
 </entry>
 
 <!-- Moist Convection and Microphysics -->

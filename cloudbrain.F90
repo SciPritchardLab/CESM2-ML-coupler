@@ -18,6 +18,7 @@ use physics_types,    only: physics_state,  physics_ptend, physics_ptend_init
 use cam_logfile,       only: iulog
 use physics_buffer,   only: physics_buffer_desc, pbuf_get_field, pbuf_get_index
 use cam_history_support, only: pflds, fieldname_lenp2
+use cam_abortutils, only: endrun
 
 ! -------- NEURAL-FORTRAN --------
 ! imports
@@ -53,6 +54,12 @@ use mod_network , only: network_type
   integer :: max_nn_ens = 100 ! Max. ensemble size is arbitrarily set to 100.
   character(len=256), allocatable :: cb_ens_fkb_model_list(:)
 
+  integer :: cb_random_ens_size = 0
+
+  ! local
+  integer, allocatable :: ens_ind_shuffled(:)
+  logical :: cb_do_random_ensemble = .false.
+
   public neural_net, init_neural_net, cbrain_readnl, &
          cb_partial_coupling, cb_partial_coupling_vars
   
@@ -70,6 +77,9 @@ contains
    type(physics_ptend),intent(out)    :: ptend            ! indivdual parameterization tendencies
    type(cam_out_t),     intent(inout) :: cam_out  ! SY: changed to inout to use variables from a previous time step (e.g., PRECT)
    type(physics_buffer_desc), pointer  :: pbuf(:) ! SY: for precip variables.
+
+   ! SY: for random ensemble averaging
+   integer, external :: shuffled_1d 
 
     ! local variables
    real(r8) :: input(pcols,inputlength)
@@ -182,10 +192,27 @@ contains
     do i=1,ncol
       if (cb_do_ensemble) then
         output(i,:) = 0.
-        do kens = 1,cb_ens_size
-           output(i,:) = output(i,:) +  (1._r8/cb_ens_size) * cloudbrain_net(kens) % output(input(i,:))
-        enddo
-      else
+        !! Random ensemble averaging
+        if (cb_do_random_ensemble) then
+          ens_ind_shuffled = shuffle_1d(ens_ind_shuffled) ! randomly shuffle ens indices
+          do kens = 1,cb_ens_size
+            if ( ens_ind_shuffled(kens) .le. cb_random_ens_size ) then
+              output(i,:) = output(i,:) +  (1._r8/cb_random_ens_size) * cloudbrain_net(kens) % output(input(i,:))
+            end if
+          enddo
+#ifdef BRAINDEBUG
+          if (masterproc .and. i.eq.1) then
+            write (iulog,*) 'BRAINDEBUG  random ensemble model IDs = ',output(1,1:cb_random_ens_size)
+          endif
+#endif
+        !! All ensemble averaging
+        else
+          do kens = 1,cb_ens_size
+            output(i,:) = output(i,:) +  (1._r8/cb_ens_size) * cloudbrain_net(kens) % output(input(i,:))
+          enddo
+        endif
+      !! Using a single model
+      else ! cb_do_ensemble
         output(i,:) = cloudbrain_net(1) % output(input(i,:))
       endif
     end do
@@ -341,25 +368,38 @@ end subroutine neural_net
 
     implicit none
 
-    integer :: i
+    integer :: i, k
 
     allocate(inp_sub (inputlength))
     allocate(inp_div (inputlength))
     allocate(out_scale (outputlength))
-
+    
+    ! ens-mean inference
     if (cb_do_ensemble) then
        write (iulog,*) 'CLOUDBRAIN: Ensemble is turned on with Ensemble size  ', cb_ens_size
        allocate(cloudbrain_net (cb_ens_size))
        do i = 1,cb_ens_size
           call cloudbrain_net(i) %load(cb_ens_fkb_model_list(i))
+          write (iulog,*) 'CLOUDBRAIN: Ensemble fkb model (', i, ') : ', trim(cb_ens_fkb_model_list(i))
        enddo
-       write (iulog,*) 'CLOUDBRAIN: Ensemble fkb model ', i, ' : ', trim(cb_ens_fkb_model_list(i))
+
+       ! random ensemble
+       if (cb_random_ens_size .ge. 1) then
+          write (iulog,*) 'CLOUDBRAIN: Random ensemble averaging with N = ', cb_random_ens_size
+          if (cb_random_ens_size .le. cb_ens_size) then
+             allocate(ens_ind_shuffled(cb_ens_size))
+             ens_ind_shuffled = (/ (k, k=1, cb_ens_size) /)
+             cb_do_random_ensemble = .true.
+          else
+             call endrun("init_neural_net error: cb_random_ens_size should be less than or equal to cb_ens_size")
+          endif
+
+       endif
+
+    ! single model inference
     else
        allocate(cloudbrain_net (1))
        call cloudbrain_net(1) %load(cb_fkb_model)
-    endif
-
-    if (masterproc) then
        write (iulog,*) 'CLOUDBRAIN: loaded network from txt file, ', trim(cb_fkb_model)
     endif
 
@@ -480,13 +520,12 @@ end subroutine neural_net
    end do
   end subroutine detect_tropopause
 
-   ! Read namelist variables.
+  ! Read namelist variables.
   subroutine cbrain_readnl(nlfile)
 
       use namelist_utils,  only: find_group_name
       use units,           only: getunit, freeunit
       use mpishorthand
-      use cam_abortutils, only: endrun
 
       character(len=*), intent(in) :: nlfile  ! filepath for file containing namelist input
 
@@ -499,7 +538,8 @@ end subroutine neural_net
                            cb_inp_sub, cb_inp_div, cb_out_scale, &
                            cb_partial_coupling, cb_partial_coupling_vars,&
                            cb_use_input_prectm1, &
-                           cb_do_ensemble, cb_ens_size, cb_ens_fkb_model_list
+                           cb_do_ensemble, cb_ens_size, cb_ens_fkb_model_list, &
+                           cb_random_ens_size
 
       ! Initialize 'cb_partial_coupling_vars'
       do f = 1, pflds
@@ -540,14 +580,38 @@ end subroutine neural_net
       call mpibcast(cb_partial_coupling, 1,          mpilog,  0, mpicom)
       call mpibcast(cb_partial_coupling_vars, len(cb_partial_coupling_vars(1))*pflds, mpichar, 0, mpicom, ierr)
       call mpibcast(cb_do_ensemble, 1,               mpilog,  0, mpicom)
-      call mpibcast(cb_ens_size,  1,                 mpiint,  0, mpicom)
+      call mpibcast(cb_ens_size,    1,               mpiint,  0, mpicom)
       call mpibcast(cb_ens_fkb_model_list,    len(cb_ens_fkb_model_list(1))*max_nn_ens, mpichar, 0, mpicom, ierr)
+      call mpibcast(cb_random_ens_size,    1,        mpiint,  0, mpicom)
       if (ierr /= 0) then
          call endrun(subname // ':: ERROR broadcasting namelist variable cb_partial_coupling_vars')
       end if
 #endif
 
    end subroutine cbrain_readnl
+
+  function shuffle_1d(array_1d) result(array_shuffled)
+  ! Shuffling the entries of 1-d INTEGER array
+  ! (using the Knuth shuffle algorithm: https://en.wikipedia.org/wiki/Fisher–Yates_shuffle)
+    implicit none
+    integer, intent(in) :: array_1d(:)
+    integer :: array_shuffled(size(array_1d))
+    integer :: j, k, tmp
+    real :: u
+
+    array_shuffled(:) = array_1d(:)
+
+    j    = size(array_1d)
+    do while (j > 1)
+       call random_seed
+       call random_number(u)
+       k = 1 + FLOOR(j * u)
+       tmp = array_shuffled(j)
+       array_shuffled(j) = array_shuffled(k)
+       array_shuffled(k) = tmp
+       j = j -1
+    end do
+  end function shuffle_1d
 
 end module cloudbrain
 #endif
