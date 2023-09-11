@@ -202,7 +202,7 @@ contains
           enddo
 #ifdef BRAINDEBUG
           if (masterproc .and. i.eq.1) then
-            write (iulog,*) 'BRAINDEBUG  random ensemble model IDs = ',output(1,1:cb_random_ens_size)
+            write (iulog,*) 'BRAINDEBUG  random ensemble model IDs = ',ens_ind_shuffled(1:cb_random_ens_size)
           endif
 #endif
         !! All ensemble averaging
