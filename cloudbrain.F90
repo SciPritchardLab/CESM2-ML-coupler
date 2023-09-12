@@ -195,10 +195,8 @@ contains
         !! Random ensemble averaging
         if (cb_do_random_ensemble) then
           ens_ind_shuffled = shuffle_1d(ens_ind_shuffled) ! randomly shuffle ens indices
-          do kens = 1,cb_ens_size
-            if ( ens_ind_shuffled(kens) .le. cb_random_ens_size ) then
-              output(i,:) = output(i,:) +  (1._r8/cb_random_ens_size) * cloudbrain_net(kens) % output(input(i,:))
-            end if
+          do kens = 1,cb_random_ens_size
+            output(i,:) = output(i,:) +  (1._r8/cb_random_ens_size) * cloudbrain_net(ens_ind_shuffled(kens)) % output(input(i,:))
           enddo
 #ifdef BRAINDEBUG
           if (masterproc .and. i.eq.1) then
