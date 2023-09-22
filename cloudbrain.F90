@@ -84,6 +84,7 @@ contains
     ! local variables
    real(r8) :: input(pcols,inputlength)
    real(r8) :: output(pcols,outputlength)
+   real(r8) :: work(outputlength)
    integer :: i,k,ncol,ixcldice,ixcldliq,ii,kk,klev_crmtop,kens
    real (r8) :: s_bctend(pcols,pver), q_bctend(pcols,pver), qc_bctend(pcols,pver), qi_bctend(pcols,pver), qafter, safter
    logical :: doconstraints
@@ -196,7 +197,13 @@ contains
         if (cb_do_random_ensemble) then
           ens_ind_shuffled = shuffle_1d(ens_ind_shuffled) ! randomly shuffle ens indices
           do kens = 1,cb_random_ens_size
-            output(i,:) = output(i,:) +  (1._r8/cb_random_ens_size) * cloudbrain_net(ens_ind_shuffled(kens)) % output(input(i,:))
+            work = cloudbrain_net(ens_ind_shuffled(kens)) % output(input(i,:))
+            ! ReLU (begin)
+            do k=4*pvert+1,4*pvert+8
+              work(k) = max(work(k), 0.)
+            enddo
+            ! ReLU (end)
+            output(i,:) = output(i,:) +  (1._r8/cb_random_ens_size) * work
           enddo
 #ifdef BRAINDEBUG
           if (masterproc .and. i.eq.1) then
@@ -206,32 +213,30 @@ contains
         !! All ensemble averaging
         else
           do kens = 1,cb_ens_size
-            output(i,:) = output(i,:) +  (1._r8/cb_ens_size) * cloudbrain_net(kens) % output(input(i,:))
+            work = cloudbrain_net(kens) % output(input(i,:))
+            ! ReLU (begin)
+            do k=4*pvert+1,4*pvert+8
+              work(k) = max(work(k), 0.)
+            enddo
+            ! ReLU (end)
+            output(i,:) = output(i,:) +  (1._r8/cb_ens_size) * work 
           enddo
         endif
+
       !! Using a single model
       else ! cb_do_ensemble
-        output(i,:) = cloudbrain_net(1) % output(input(i,:))
+            work = cloudbrain_net(1) % output(input(i,:))
+            ! ReLU (begin)
+            do k=4*pvert+1,4*pvert+8
+              work(k) = max(work(k), 0.)
+            enddo
+            ! ReLU (end)
+            output(i,:) = work 
       endif
     end do
 #ifdef BRAINDEBUG
       if (masterproc) then
-        write (iulog,*) 'BRAINDEBUG output = ',output(1,:)
-      endif
-#endif
-
-   ! Manually applying ReLU activation for positive-definite variables
-   do i=1,ncol
-     do k=4*pvert+1,4*pvert+8
-       output(i,k) = max(output(i,k), 0.)
-     end do
-     k=4*pvert+3
-     output(i,k) = max(output(i,k), tiny(output(i,k))) ! flwds
-                                                       ! preventing flwds==0 error
-   end do
-#ifdef BRAINDEBUG
-      if (masterproc) then
-        write (iulog,*) 'BRAINDEBUG output after ReLU = ',output(1,:)
+        write (iulog,*) 'BRAINDEBUG output (after ReLU) = ',output(1,:)
       endif
 #endif
 
@@ -241,9 +246,16 @@ contains
       output(i,k) = output(i,k) / out_scale(k)
      end do
    end do
+
+   ! Manual adjustment for some cam_out variables
+   do i=1,ncol
+     k=4*pvert+3
+     output(i,k) = max(output(i,k), tiny(output(i,k))) ! flwds (preventing flwds==0 error)
+   end do
+
 #ifdef BRAINDEBUG
       if (masterproc) then
-        write (iulog,*) 'BRAINDEBUG output post scale = ',output(1,:)
+        write (iulog,*) 'BRAINDEBUG output post scale (+ manual adjustment) = ',output(1,:)
       endif
 #endif
 
