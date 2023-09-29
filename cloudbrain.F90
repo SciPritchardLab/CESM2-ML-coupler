@@ -6,23 +6,25 @@
 
 module cloudbrain
 
-use constituents,    only: pcnst
-use shr_kind_mod,    only: r8 => shr_kind_r8
-use ppgrid,          only: pcols, pver, pverp
-use cam_history,         only: outfld, addfld, add_default
-use physconst,       only: gravit,cpair,latvap,latice
-use spmd_utils, only: masterproc,iam
-use camsrfexch,       only: cam_out_t, cam_in_t
-use constituents,    only: cnst_get_ind
-use physics_types,    only: physics_state,  physics_ptend, physics_ptend_init
-use cam_logfile,       only: iulog
-use physics_buffer,   only: physics_buffer_desc, pbuf_get_field, pbuf_get_index
+use constituents,   only: pcnst
+use shr_kind_mod,   only: r8 => shr_kind_r8
+use ppgrid,         only: pcols, pver, pverp
+use cam_history,    only: outfld, addfld, add_default
+use physconst,      only: gravit,cpair,latvap,latice
+use spmd_utils,     only: masterproc,iam
+use camsrfexch,     only: cam_out_t, cam_in_t
+use constituents,   only: cnst_get_ind
+use physics_types,  only: physics_state,  physics_ptend, physics_ptend_init
+use cam_logfile,    only: iulog
+use physics_buffer, only: physics_buffer_desc, pbuf_get_field, pbuf_get_index
 use cam_history_support, only: pflds, fieldname_lenp2
 use cam_abortutils, only: endrun
+use orbit,          only: zenith
+use phys_grid,      only: get_rlat_all_p, get_rlon_all_p
+use time_manager,   only: get_curr_calday
 
 ! -------- NEURAL-FORTRAN --------
-! imports
-use mod_kinds, only: ik, rk
+! use mod_kinds, only: ik, rk
 use mod_network , only: network_type
 ! --------------------------------
 
@@ -92,14 +94,19 @@ contains
    real(r8) :: rh_loc
    integer :: pvert,ntrim
    integer :: prec_dp_idx, snow_dp_idx
-   ! convective precipitation variables
    real(r8), pointer :: prec_dp(:)                ! total precip rate [m/s]
    real(r8), pointer :: snow_dp(:)                ! snow precip rate [m/s]
+   integer  :: lchnk                              ! chunk identifier
+   real(r8) :: calday                        ! current calendar day
+   real(r8) :: clat(pcols)                   ! current latitudes(radians)
+   real(r8) :: clon(pcols)                   ! current longitudes(radians)
+   real(r8) :: coszrs(pcols)                 ! Cosine solar zenith angle
 
    ntrim = 0 !sungduk: cam_nz=26, crm_nz=24, However, NN input variable has nz=26.
    pvert = pver-ntrim ! after trimming.
 
    ncol  = state%ncol
+   lchnk = state%lchnk
    call cnst_get_ind('CLDLIQ', ixcldliq)
    call cnst_get_ind('CLDICE', ixcldice)
    lq(:)        = .FALSE.
@@ -323,37 +330,52 @@ contains
     ptend%q(:ncol,:pver,ixcldliq) = qc_bctend(:ncol,:pver)
     ptend%q(:ncol,:pver,ixcldice) = qi_bctend(:ncol,:pver)
 
+! ------------- 3. NN output to land forcing ---------
+! ['PRECT','PREC_CRM_SNOW','PREC_CRM','NN2L_FLWDS','NN2L_DOWN_SW','NN2L_SOLL','NN2L_SOLLD','NN2L_SOLS','NN2L_SOLSD']
 
-! ------------- 2. NN output to land forcing ---------
-!!! Sungduk: these are original version.
-!!!          It works, but I wrote it again to add 'ocean only coupling' option
-!!!          (#CBRAIN_OCN_ONLY)
-!!! ! ['PRECT','PREC_CRM_SNOW','PREC_CRM','NN2L_FLWDS','NN2L_DOWN_SW','NN2L_SOLL','NN2L_SOLLD','NN2L_SOLS','NN2L_SOLSD']
-!!!    ! These are the cam_out members that are not assigned in cam_export
-!!!    cam_out%flwds = output(:ncol,4*pvert+3)
-!!!    cam_out%netsw = output(:ncol,4*pvert+4)
-!!!    cam_out%soll  = output(:ncol,4*pvert+5)
-!!!    cam_out%solld = output(:ncol,4*pvert+6)
-!!!    cam_out%sols  = output(:ncol,4*pvert+7)
-!!!    cam_out%solsd = output(:ncol,4*pvert+8)
-!!! 
-!!!    ! These are the cam_out members that are assigned in cam_export,
-!!!    ! and so saved to pbuf, instead.
-!!!    ! SY: Note that this uses SPCAM's pbuf register.
-!!!    !     Once, SP is entirely removed, we still need to call crm_physics_register().
-!!!    prec_dp_idx = pbuf_get_index('PREC_DP', errcode=i) ! Query physics buffer index
-!!!    snow_dp_idx = pbuf_get_index('SNOW_DP', errcode=i)
-!!!    call pbuf_get_field(pbuf, prec_dp_idx, prec_dp) ! Associate pointers withphysics buffer fields
-!!!    call pbuf_get_field(pbuf, snow_dp_idx, snow_dp)
-!!!    prec_dp(:ncol) = output(:ncol,4*pvert+2)   ! PREC_CRM
-!!!    snow_dp(:ncol) = output(:ncol,4*pvert+1)   ! PREC_CRM_SNOW
-
+   ! SY: These are the cam_out members that are assigned in cam_export,
+   !     and so saved to pbuf, instead.
+   !     Note that this uses SPCAM's pbuf register.
+   !     Once, SP is entirely removed, we still need to call crm_physics_register().
    prec_dp_idx = pbuf_get_index('PREC_DP', errcode=i) ! Query physics buffer index
    snow_dp_idx = pbuf_get_index('SNOW_DP', errcode=i)
    call pbuf_get_field(pbuf, prec_dp_idx, prec_dp) ! Associate pointers withphysics buffer fields
    call pbuf_get_field(pbuf, snow_dp_idx, snow_dp)
+
+! Shortwave flux positivity constraint
+   ! Cosine solar zenith angle for current time step
+   calday = get_curr_calday()
+   call get_rlat_all_p(lchnk, ncol, clat)
+   call get_rlon_all_p(lchnk, ncol, clon)
+   call zenith (calday, clat, clon, coszrs, ncol)
    do i = 1,ncol
-! SY: debugging
+      ! ! to be deleted (0N, 1.5N, 1E, 3E)
+      ! if ( (clat(i)>0.) .and. (clat(i)<0.02618) .and. (clon(i)>0.01745) .and. (clon(i)<0.05236) ) then
+      !    output(i,4*pvert+4) = 2000. ! netsw
+      !    output(i,4*pvert+5) = 2000. ! soll
+      !    output(i,4*pvert+6) = 2000. ! solld
+      !    output(i,4*pvert+7) = 2000. ! sols
+      !    output(i,4*pvert+8) = 2000. ! solsd
+      !    write (iulog,*) '[DEBUG] perturbed sw vars ', coszrs(i), output(i,4*pvert+4), output(i,4*pvert+5), output(i,4*pvert+6), output(i,4*pvert+7), output(i,4*pvert+8)
+      ! end if
+
+      if ( coszrs(i) .le. 0.0_r8 ) then
+         output(i,4*pvert+4) = 0. ! netsw
+         output(i,4*pvert+5) = 0. ! soll
+         output(i,4*pvert+6) = 0. ! solld
+         output(i,4*pvert+7) = 0. ! sols
+         output(i,4*pvert+8) = 0. ! solsd
+      end if
+
+      ! ! to be deleted
+      ! if ( (clat(i)>0.) .and. (clat(i)<0.02618) .and. (clon(i)>0.01745) .and. (clon(i)<0.05236) ) then
+      !    write (iulog,*) '[DEBUG] after contraint, sw vars ', coszrs(i), output(i,4*pvert+4), output(i,4*pvert+5), output(i,4*pvert+6), output(i,4*pvert+7), output(i,4*pvert+8)
+      ! end if
+
+   end do
+
+   do i = 1,ncol
+! SY: for debugging
 !     allowing surface coupling over ocean only
 #ifdef CBRAIN_OCN_ONLY 
      if (cam_in%ocnfrac(i) .eq. 1.0_r8) then
