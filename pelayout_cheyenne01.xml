@@ -25,19 +25,19 @@
     </header>
   <comment>none</comment>
   <group id="mach_pes_last">
-    <entry id="COST_PES" value="2048">
+    <entry id="COST_PES" value="1024">
       <type>integer</type>
       <desc>pes or cores used relative to MAX_MPITASKS_PER_NODE for accounting (0 means TOTALPES is valid)</desc>
     </entry>
-    <entry id="TOTALPES" value="2048">
+    <entry id="TOTALPES" value="1024">
       <type>integer</type>
       <desc>total number of physical cores used (setup automatically - DO NOT EDIT)</desc>
     </entry>
-    <entry id="MAX_TASKS_PER_NODE" value="256">
+    <entry id="MAX_TASKS_PER_NODE" value="36">
       <type>integer</type>
       <desc>maximum number of tasks/ threads allowed per node </desc>
     </entry>
-    <entry id="MAX_MPITASKS_PER_NODE" value="64">
+    <entry id="MAX_MPITASKS_PER_NODE" value="36">
       <type>integer</type>
       <desc>pes or cores per node for mpitasks </desc>
     </entry>
@@ -59,14 +59,14 @@
     <entry id="NTASKS">
       <type>integer</type>
       <values>
-        <value compclass="ATM">-32</value>
-        <value compclass="CPL">-4</value>
-        <value compclass="OCN">-4</value>
-        <value compclass="WAV">-4</value>
-        <value compclass="GLC">-4</value>
-        <value compclass="ICE">-4</value>
-        <value compclass="ROF">-4</value>
-        <value compclass="LND">-4</value>
+        <value compclass="ATM">1024</value>
+        <value compclass="CPL">72</value>
+        <value compclass="OCN">72</value>
+        <value compclass="WAV">72</value>
+        <value compclass="GLC">72</value>
+        <value compclass="ICE">72</value>
+        <value compclass="ROF">72</value>
+        <value compclass="LND">72</value>
         <value compclass="ESP">1</value>
       </values>
       <desc>number of tasks for each component</desc>
@@ -74,13 +74,13 @@
     <entry id="NTASKS_PER_INST">
       <type>integer</type>
       <values>
-        <value compclass="ATM">-32</value>
-        <value compclass="OCN">-32</value>
-        <value compclass="WAV">-32</value>
-        <value compclass="GLC">-32</value>
-        <value compclass="ICE">-32</value>
-        <value compclass="ROF">-32</value>
-        <value compclass="LND">-32</value>
+        <value compclass="ATM">1024</value>
+        <value compclass="OCN">1024</value>
+        <value compclass="WAV">1024</value>
+        <value compclass="GLC">1024</value>
+        <value compclass="ICE">1024</value>
+        <value compclass="ROF">1024</value>
+        <value compclass="LND">1024</value>
         <value compclass="ESP">1</value>
       </values>
       <desc>Number of tasks per instance for each component. DO NOT EDIT: Set automatically by case.setup based on NTASKS, NINST and MULTI_DRIVER</desc>
