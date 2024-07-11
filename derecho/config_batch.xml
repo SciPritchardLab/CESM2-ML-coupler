@@ -358,7 +358,8 @@
   <batch_system MACH="derecho" type="pbs" >
     <batch_submit>qsub</batch_submit>
     <submit_args>
-      <arg flag="-l job_priority=" name="$JOB_PRIORITY"/>
+      <!-- <arg flag="-l job_priority=" name="$JOB_PRIORITY"/> This does not work only for CESM2.3 and newer -->
+      <arg flag="-l job_priority=" name="regular"/>
     </submit_args>
     <directives>
       <directive default="/bin/bash" > -S {{ shell }}  </directive>

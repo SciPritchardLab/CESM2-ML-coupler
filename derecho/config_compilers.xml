@@ -754,6 +754,12 @@ using a fortran linker.
   <SLIBS>
     <append> -lnetcdff -lnetcdf </append>
   </SLIBS>
+  <FFLAGS>
+    <append> -I/glade/work/sungduk/shared/FKB_mnijh/build/include/ </append>        <!-- FKB -->
+  </FFLAGS>
+  <LDFLAGS>
+    <append> -L/glade/work/sungduk/shared/FKB_mnijh/build/lib/ -lneural </append>   <!-- FKB -->
+  </LDFLAGS>
 </compiler>
 
 <compiler MACH="derecho" COMPILER="intel">
