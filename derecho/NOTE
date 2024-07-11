@@ -1,0 +1,5 @@
+Derecho support is available in the Community Earth System Model (CESM) starting from version release-cesm2.1.5 ((https://github.com/ESCOMP/CESM/tree/release-cesm2.1.5). 
+
+The machine configuration files in this directory, config_{machines, compilers, batch}.xml are from ver2.1.5 and, if necessary, modified to support features specific to FKB.
+
+(The cime machine configurations can be also found in https://github.com/ESMCI/cime/tree/cime5.6.49/config/cesm/machines)
